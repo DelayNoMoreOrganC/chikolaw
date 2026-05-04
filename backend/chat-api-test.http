@@ -1,0 +1,146 @@
+### 聊天接口验收测试脚本
+### 使用方式：在IntelliJ IDEA中打开此文件，点击每行左侧的绿色运行按钮
+
+### 基础URL
+@baseUrl = http://localhost:8080/api
+@token = Bearer YOUR_JWT_TOKEN_HERE
+
+### 1. 健康检查（无需认证）
+GET {{baseUrl}}/chat/health
+Accept: application/json
+
+### 2. 通用法律咨询（需要认证）
+POST {{baseUrl}}/chat/legal
+Content-Type: application/json
+Authorization: {{token}}
+
+{
+  "message": "劳动合同未签订双倍工资怎么计算？"
+}
+
+### 3. RAG检索问答（需要认证）
+POST {{baseUrl}}/chat/rag
+Content-Type: application/json
+Authorization: {{token}}
+
+{
+  "question": "劳动合同纠纷如何处理？",
+  "topK": 5
+}
+
+### 4. 通用法律咨询 - 刑事案件
+POST {{baseUrl}}/chat/legal
+Content-Type: application/json
+Authorization: {{token}}
+
+{
+  "message": "涉嫌交通肇事罪应该怎么处理？"
+}
+
+### 5. 通用法律咨询 - 民事纠纷
+POST {{baseUrl}}/chat/legal
+Content-Type: application/json
+Authorization: {{token}}
+
+{
+  "message": "邻居装修噪音扰民怎么办？"
+}
+
+### 6. RAG检索问答 - 合同相关
+POST {{baseUrl}}/chat/rag
+Content-Type: application/json
+Authorization: {{token}}
+
+{
+  "question": "房屋买卖合同违约金如何计算？",
+  "topK": 3
+}
+
+### 7. 通用法律咨询 - 婚姻家庭
+POST {{baseUrl}}/chat/legal
+Content-Type: application/json
+Authorization: {{token}}
+
+{
+  "message": "离婚后孩子抚养费怎么计算？"
+}
+
+### 8. RAG检索问答 - 劳动争议
+POST {{baseUrl}}/chat/rag
+Content-Type: application/json
+Authorization: {{token}}
+
+{
+  "question": "加班费计算基数是什么？",
+  "topK": 5
+}
+
+### 预期响应示例
+
+#### 健康检查响应 (200 OK)
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "status": "ok",
+    "service": "Chat Service",
+    "version": "1.0.0",
+    "features": "legal,rag"
+  }
+}
+
+#### 法律咨询响应 (200 OK)
+{
+  "code": 200,
+  "message": "success",
+  "data": "【问题理解】\n您询问的是劳动合同未签订情形下双倍工资的计算问题...\n\n【法律分析】\n1. 相关法律规定：\n   - 《劳动合同法》第八十二条...\n..."
+}
+
+#### RAG检索问答响应 (200 OK)
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "answer": "根据知识库文档，劳动合同纠纷处理流程如下...",
+    "sources": [
+      {
+        "id": 1,
+        "title": "劳动合同纠纷处理指南",
+        "category": "劳动法",
+        "relevanceScore": "0.95",
+        "summary": "本文档介绍劳动合同纠纷的处理流程..."
+      },
+      ...
+    ],
+    "hasAnswer": true,
+    "documentCount": 3,
+    "searchMethod": "Vector Search + LLM"
+  }
+}
+
+### 错误响应示例
+
+#### 未授权 (401 Unauthorized)
+{
+  "timestamp": "2026-05-04T21:00:00.000+00:00",
+  "status": 401,
+  "error": "Unauthorized",
+  "message": "Full authentication is required to access this resource"
+}
+
+#### AI配置未设置 (500 Internal Server Error)
+{
+  "code": 500,
+  "message": "法律咨询失败: AI配置未设置，请先在系统设置中配置AI服务"
+}
+
+#### 检索无结果 (200 OK)
+{
+  "code": 200,
+  "message": "success",
+  "data": {
+    "answer": "未找到相关文档。请尝试其他关键词。",
+    "sources": [],
+    "hasAnswer": false
+  }
+}
