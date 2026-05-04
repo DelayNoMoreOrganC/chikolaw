@@ -10,6 +10,9 @@ import com.lawfirm.repository.RoleRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +22,7 @@ import java.util.stream.Collectors;
 
 /**
  * 角色服务
+ * 支持缓存：角色和权限查询结果会被缓存
  */
 @Slf4j
 @Service
@@ -31,8 +35,10 @@ public class RoleService {
 
     /**
      * 创建角色
+     * 创建时清除roles缓存
      */
     @Transactional
+    @CacheEvict(value = "roles", allEntries = true)
     public RoleDTO createRole(RoleCreateRequest request) {
         // 检查角色编码是否已存在
         if (roleRepository.existsByRoleCode(request.getRoleCode())) {
@@ -54,8 +60,13 @@ public class RoleService {
 
     /**
      * 更新角色
+     * 更新时清除缓存
      */
     @Transactional
+    @Caching(evict = {
+        @CacheEvict(value = "roles", key = "#roleId"),
+        @CacheEvict(value = "roles", allEntries = true)
+    })
     public RoleDTO updateRole(Long roleId, RoleCreateRequest request) {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new RuntimeException("角色不存在"));
@@ -75,8 +86,10 @@ public class RoleService {
 
     /**
      * 删除角色
+     * 删除时清除缓存
      */
     @Transactional
+    @CacheEvict(value = "roles", key = "#roleId")
     public void deleteRole(Long roleId) {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new RuntimeException("角色不存在"));
@@ -102,7 +115,9 @@ public class RoleService {
 
     /**
      * 获取角色详情
+     * 使用缓存
      */
+    @Cacheable(value = "roles", key = "#roleId")
     public RoleDTO getRoleDetail(Long roleId) {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new RuntimeException("角色不存在"));
@@ -112,8 +127,10 @@ public class RoleService {
 
     /**
      * 分配权限
+     * 分配权限时清除角色缓存
      */
     @Transactional
+    @CacheEvict(value = "roles", key = "#roleId")
     public void assignPermissions(Long roleId, List<Long> permissionIds) {
         Role role = roleRepository.findById(roleId)
                 .orElseThrow(() -> new RuntimeException("角色不存在"));
@@ -138,7 +155,9 @@ public class RoleService {
 
     /**
      * 获取所有角色（下拉选择用）
+     * 使用缓存
      */
+    @Cacheable(value = "roles", key = "'all'")
     public List<RoleDTO> getAllRoles() {
         List<Role> roles = roleRepository.findAll();
 

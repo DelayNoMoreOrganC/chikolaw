@@ -16,6 +16,9 @@ import com.lawfirm.repository.UserRoleRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.*;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -27,6 +30,7 @@ import java.util.stream.Collectors;
 
 /**
  * 用户服务
+ * 支持缓存：用户查询结果会被缓存，减少数据库查询
  */
 @Slf4j
 @Service
@@ -41,8 +45,10 @@ public class UserService {
 
     /**
      * 创建用户
+     * 创建时清除users缓存
      */
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "users", allEntries = true)
     public UserDTO createUser(UserCreateRequest request) {
         // 检查用户名是否已存在
         if (userRepository.existsByUsername(request.getUsername())) {
@@ -62,8 +68,13 @@ public class UserService {
 
     /**
      * 更新用户
+     * 更新时清除缓存
      */
     @Transactional(rollbackFor = Exception.class)
+    @Caching(evict = {
+        @CacheEvict(value = "users", key = "#userId"),
+        @CacheEvict(value = "users", allEntries = true)
+    })
     public UserDTO updateUser(Long userId, UserUpdateRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("用户", userId));
@@ -122,8 +133,10 @@ public class UserService {
 
     /**
      * 获取用户详情
+     * 使用缓存，key为用户ID
      */
     @Transactional(readOnly = true)
+    @Cacheable(value = "users", key = "#userId")
     public UserDTO getUserDetail(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("用户", userId));
@@ -133,8 +146,10 @@ public class UserService {
 
     /**
      * 启用/禁用用户
+     * 更新状态时清除缓存
      */
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "users", key = "#userId")
     public void toggleUserStatus(Long userId, Integer status) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("用户", userId));
@@ -150,8 +165,10 @@ public class UserService {
 
     /**
      * 重置密码
+     * 重置密码时清除缓存（安全考虑）
      */
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "users", key = "#userId")
     public void resetPassword(Long userId, String newPassword) {
         if (newPassword == null || newPassword.trim().isEmpty()) {
             throw new InvalidParameterException("newPassword", "新密码不能为空");
@@ -169,8 +186,10 @@ public class UserService {
 
     /**
      * 修改密码
+     * 修改密码时清除缓存（安全考虑）
      */
     @Transactional(rollbackFor = Exception.class)
+    @CacheEvict(value = "users", key = "#userId")
     public void changePassword(Long userId, String oldPassword, String newPassword) {
         if (oldPassword == null || oldPassword.trim().isEmpty()) {
             throw new InvalidParameterException("oldPassword", "旧密码不能为空");
