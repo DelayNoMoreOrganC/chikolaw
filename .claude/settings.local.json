@@ -17,7 +17,9 @@
       "Bash(node:*)",
       "Bash(git add *)",
       "Bash(mvn compile *)",
-      "Bash(xargs basename *)"
+      "Bash(xargs basename *)",
+      "Bash(npm run *)",
+      "Bash(pkill *)"
     ]
   }
 }
