@@ -246,16 +246,55 @@ const menuRoutes = computed(() => {
       children: [
         { path: '/case/list', meta: { title: '案件列表' } },
         { path: '/case/create', meta: { title: '新建案件' } },
+        { path: '/case/batch-import', meta: { title: '批量收案' } },
         { path: '/case/archive', meta: { title: '归档库' } },
         { path: '/case/trash', meta: { title: '回收站' } }
       ]
     },
-    { path: '/client', meta: { title: '客户', icon: '👥' } },
+    {
+      path: '/client',
+      meta: { title: '客户', icon: '👥' },
+      children: [
+        { path: '/client/list', meta: { title: '客户列表' } },
+        { path: '/client/create', meta: { title: '新建客户' } }
+      ]
+    },
     { path: '/document', meta: { title: '文档中心', icon: '📁' } },
     { path: '/finance', meta: { title: '财务', icon: '💰' } },
     { path: '/approval', meta: { title: '审批', icon: '✅' } },
-    { path: '/admin-oa', meta: { title: '行政', icon: '🏢' } },
+    {
+      path: '/admin-oa',
+      meta: { title: '行政', icon: '🏢' },
+      children: [
+        { path: '/admin-oa', meta: { title: '行政OA' } },
+        { path: '/office-supplies', meta: { title: '办公用品' } },
+        { path: '/fixed-assets', meta: { title: '固定资产' } }
+      ]
+    },
     { path: '/statistics', meta: { title: '统计', icon: '📈' } },
+    {
+      path: '/knowledge',
+      meta: { title: '知识库', icon: '📚' },
+      children: [
+        { path: '/knowledge/list', meta: { title: '知识库' } },
+        { path: '/knowledge/rag', meta: { title: 'AI问答' } },
+        { path: '/knowledge/create', meta: { title: '新建文章' } }
+      ]
+    },
+    { path: '/legal-search', meta: { title: '法律检索', icon: '⚖️' } },
+    { path: '/ai-hub', meta: { title: 'AI智能中心', icon: '🤖' } },
+    { path: '/case-search', meta: { title: '类案检索', icon: '🔍' } },
+    {
+      path: '/tools',
+      meta: { title: '工具集', icon: '🔧' },
+      children: [
+        { path: '/tools', meta: { title: '工具集' } },
+        { path: '/ac-calculator', meta: { title: '债权精算' } },
+        { path: '/ssb-time-saver', meta: { title: 'SSB省时宝' } }
+      ]
+    },
+    { path: '/work-reports', meta: { title: '工作汇报', icon: '📝' } },
+    { path: '/document-flow', meta: { title: '公文流转', icon: '📄' } },
     { path: '/settings', meta: { title: '设置', icon: '⚙️' } }
   ]
   return routes

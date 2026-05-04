@@ -303,6 +303,13 @@ const routes = [
         component: () => import('@/views/tools/ac-calculator.vue'),
         meta: { title: '债权精算', icon: '🧮' }
       },
+      // SSB省时宝
+      {
+        path: 'ssb-time-saver',
+        name: 'SSBTimeSaver',
+        component: () => import('@/views/tools/ssb-time-saver.vue'),
+        meta: { title: 'SSB省时宝', icon: '⏰' }
+      },
       // 系统设置
       {
         path: 'settings',
