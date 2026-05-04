@@ -2,11 +2,27 @@
   <div class="dashboard">
     <!-- 统计卡片区 -->
     <div class="stats-cards">
-      <div v-for="stat in stats" :key="stat.key" class="stat-card" :class="`stat-${stat.type}`">
-        <div class="stat-icon"><el-icon><component :is="getIconName(stat.icon)" /></el-icon></div>
+      <div
+        v-for="stat in stats"
+        :key="stat.key"
+        class="stat-card"
+        :class="`stat-${stat.type}`"
+        @click="handleStatClick(stat)"
+      >
+        <div class="stat-icon">
+          <el-icon><component :is="getIconName(stat.icon)" /></el-icon>
+        </div>
         <div class="stat-content">
-          <div class="stat-value">{{ stat.value }}</div>
+          <div class="stat-value" :class="{ 'has-trend': stat.trend }">
+            <span class="value-number">{{ stat.value }}</span>
+            <span v-if="stat.trend" class="trend-indicator" :class="stat.trend > 0 ? 'trend-up' : 'trend-down'">
+              {{ stat.trend > 0 ? '↑' : '↓' }} {{ Math.abs(stat.trend) }}%
+            </span>
+          </div>
           <div class="stat-label">{{ stat.label }}</div>
+        </div>
+        <div v-if="stat.loading" class="stat-loading">
+          <el-icon class="is-loading"><Loading /></el-icon>
         </div>
       </div>
     </div>
@@ -278,19 +294,22 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, FolderAdd, UserFilled, MagicStick, UploadFilled, Loading } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
+import { Plus, FolderAdd, UserFilled, MagicStick, UploadFilled, Loading, Bell } from '@element-plus/icons-vue'
 import PriorityDot from '@/components/PriorityDot.vue'
 import { getDashboardStats } from '@/api/dashboard'
-import { getTodoList, deleteTodo } from '@/api/todo'
+import { getTodoList, deleteTodo, updateTodo } from '@/api/todo'
 import { uploadDocForAIRecognition } from '@/api/ai'
 import { getCalendarList } from '@/api/calendar'
 import { useUserStore } from '@/stores'
 import AIAssistant from '@/views/ai/assistant.vue'
 const userStore = useUserStore()
 const router = useRouter()
+
+// 组件挂载状态标记，防止内存泄漏
+const isMounted = ref(true)
 
 // AI助手控制
 const showAIAssistant = ref(false)
@@ -308,14 +327,21 @@ const getIconName = (emoji) => {
   return emojiToIconName[emoji] || 'DataAnalysis'
 }
 
-// 统计数据
+// 统计数据（带趋势和动画效果）
 const stats = ref([
-  { key: 'monthlyCases', label: '本月案件数', value: 0, icon: '📊', type: 'primary' },
-  { key: 'activeCases', label: '进行中案件', value: 0, icon: '⚖️', type: 'success' },
-  { key: 'monthlyHearings', label: '本月开庭', value: 0, icon: '📅', type: 'warning' },
-  { key: 'pendingTodos', label: '待办数', value: 0, icon: '✅', type: 'danger' },
-  { key: 'monthlyIncome', label: '本月收费', value: '¥0', icon: '💰', type: 'info' }
+  { key: 'monthlyCases', label: '本月案件数', value: 0, icon: '📊', type: 'primary', trend: 0, loading: false, route: '/case/list' },
+  { key: 'activeCases', label: '进行中案件', value: 0, icon: '⚖️', type: 'success', trend: 0, loading: false, route: '/case/list?status=ACTIVE' },
+  { key: 'monthlyHearings', label: '本月开庭', value: 0, icon: '📅', type: 'warning', trend: 0, loading: false, route: '/calendar' },
+  { key: 'pendingTodos', label: '待办数', value: 0, icon: '✅', type: 'danger', trend: 0, loading: false, route: '/calendar' },
+  { key: 'monthlyIncome', label: '本月收费', value: '¥0', icon: '💰', type: 'info', trend: 0, loading: false, route: null }
 ])
+
+// 定时刷新统计数据的定时器
+let statsRefreshInterval = null
+let reminderCheckInterval = null
+
+// 上一次的统计数据（用于计算趋势）
+const previousStats = ref({})
 
 // 日历相关
 const calendarView = ref('month')
@@ -401,20 +427,57 @@ const handleCustomUpload = async (options) => {
   }
 }
 
-// 获取统计数据
-const fetchStats = async () => {
+// 获取统计数据（带动画效果和趋势计算）
+const fetchStats = async (showLoading = false) => {
   try {
+    // 如果需要显示加载状态
+    if (showLoading) {
+      stats.value.forEach(stat => stat.loading = true)
+    }
+
     const response = await getDashboardStats(userStore.userId)
     if (response.success) {
       const data = response.data
+
+      // 保存旧值用于计算趋势
+      const oldValues = { ...previousStats.value }
+
+      // 更新统计数据
       stats.value[0].value = data.monthlyCases || 0
       stats.value[1].value = data.activeCases || 0
       stats.value[2].value = data.monthlyHearings || 0
       stats.value[3].value = data.pendingTodos || 0
       stats.value[4].value = data.monthlyIncome ? `¥${data.monthlyIncome.toLocaleString()}` : '¥0'
+
+      // 计算趋势（与上次数据对比）
+      stats.value.forEach(stat => {
+        if (oldValues[stat.key] !== undefined && oldValues[stat.key] !== 0) {
+          const oldValue = oldValues[stat.key]
+          const newValue = typeof stat.value === 'number' ? stat.value : parseInt(stat.value.replace(/[^\d]/g, '')) || 0
+          const trendValue = typeof data.monthlyIncome === 'number' ? data.monthlyIncome : 0
+
+          if (typeof stat.value === 'number' && stat.key !== 'monthlyIncome') {
+            stat.trend = oldValue > 0 ? Math.round(((stat.value - oldValue) / oldValue) * 100) : 0
+          }
+        }
+        // 保存当前值
+        previousStats.value[stat.key] = stat.value
+        stat.loading = false
+      })
     }
   } catch (error) {
     console.error('获取统计数据失败:', error)
+    // 添加组件卸载检查
+    if (isMounted.value) {
+      stats.value.forEach(stat => stat.loading = false)
+    }
+  }
+}
+
+// 点击统计卡片跳转
+const handleStatClick = (stat) => {
+  if (stat.route) {
+    router.push(stat.route)
   }
 }
 
@@ -526,7 +589,7 @@ const handleEventClick = (event) => {
   eventDialogVisible.value = true
 }
 
-// 排序待办事项
+// 排序待办事项（逾期高亮、优先级排序）
 const sortedTodos = computed(() => {
   return [...todos.value].sort((a, b) => {
     // 逾期置顶
@@ -535,9 +598,14 @@ const sortedTodos = computed(() => {
     if (aOverdue && !bOverdue) return -1
     if (!aOverdue && bOverdue) return 1
 
-    // 按优先级排序
-    const priorityMap = { high: 3, medium: 2, low: 1 }
-    return priorityMap[b.priority] - priorityMap[a.priority]
+    // 按优先级排序（高 > 中 > 低）
+    const priorityMap = { high: 3, medium: 2, low: 1, NORMAL: 2, URGENT: 3 }
+    const aPriority = priorityMap[a.priority] || 1
+    const bPriority = priorityMap[b.priority] || 1
+    if (aPriority !== bPriority) return bPriority - aPriority
+
+    // 同优先级按截止时间排序
+    return new Date(a.deadline) - new Date(b.deadline)
   })
 })
 
@@ -546,19 +614,40 @@ const isOverdue = (deadline) => {
   return new Date(deadline) < new Date()
 }
 
-// 获取待办样式类
+// 获取待办样式类（逾期高亮）
 const getTodoClass = (todo) => {
-  if (todo.completed) return 'todo-completed'
-  if (isOverdue(todo.deadline)) return 'todo-overdue'
-  const daysUntilDeadline = Math.ceil((new Date(todo.deadline) - new Date()) / (1000 * 60 * 60 * 24))
+  if (todo.completed || todo.status === 'COMPLETED') return 'todo-completed'
+
+  const now = new Date()
+  const deadline = new Date(todo.deadline)
+  const daysUntilDeadline = Math.ceil((deadline - now) / (1000 * 60 * 60 * 24))
+
+  // 逾期高亮
+  if (daysUntilDeadline < 0) return 'todo-overdue'
+  // 紧急高亮（3天内）
   if (daysUntilDeadline <= 3) return 'todo-urgent'
+  // 预警（7天内）
   if (daysUntilDeadline <= 7) return 'todo-warning'
   return ''
 }
 
 // 待办操作
-const handleTodoComplete = (todo) => {
-  // removed debug log
+const handleTodoComplete = async (todo) => {
+  try {
+    const response = await updateTodo(todo.id, { completed: todo.completed })
+    if (response.success) {
+      ElMessage.success(todo.completed ? '待办已完成' : '待办已恢复')
+      // 刷新列表
+      await fetchTodos()
+      // 刷新统计
+      await fetchStats()
+    }
+  } catch (error) {
+    console.error('更新待办状态失败:', error)
+    ElMessage.error('更新失败')
+    // 恢复状态
+    todo.completed = !todo.completed
+  }
 }
 
 const handleCreateTodo = () => {
@@ -601,7 +690,7 @@ const handleDeleteTodo = async (todo) => {
   }
 }
 
-// 快捷操作
+// 快捷操作（新建案件、AI助手、上传文书）
 const handleQuickAction = (action) => {
   if (action === 'aiAssistant') {
     // 触发AI助手对话框，不跳转页面
@@ -617,15 +706,81 @@ const handleQuickAction = (action) => {
 
   if (action === 'uploadDoc') {
     ElMessage.info('请选择案件以管理案件文书')
+  } else if (actionMap[action]) {
+    router.push(actionMap[action])
+  }
+}
+
+// 检查紧急待办并提醒
+const checkUrgentTodos = () => {
+  const now = new Date()
+  const urgentTodos = todos.value.filter(todo => {
+    if (todo.completed || todo.status === 'COMPLETED') return false
+    const deadline = new Date(todo.deadline)
+    const hoursUntil = (deadline - now) / (1000 * 60 * 60)
+    // 24小时内逾期或即将到期的待办
+    return hoursUntil <= 24 && hoursUntil > 0
+  })
+
+  if (urgentTodos.length > 0) {
+    ElNotification({
+      title: '待办提醒',
+      message: `您有 ${urgentTodos.length} 个待办将在24小时内到期`,
+      type: 'warning',
+      icon: Bell,
+      duration: 5000
+    })
   }
 
-  router.push(actionMap[action])
+  // 检查逾期待办
+  const overdueTodos = todos.value.filter(todo => {
+    if (todo.completed || todo.status === 'COMPLETED') return false
+    return isOverdue(todo.deadline)
+  })
+
+  if (overdueTodos.length > 0) {
+    ElNotification({
+      title: '逾期提醒',
+      message: `您有 ${overdueTodos.length} 个待办已逾期`,
+      type: 'error',
+      icon: Bell,
+      duration: 8000
+    })
+  }
 }
 
 onMounted(() => {
-  fetchStats()
+  // 初始化数据
+  fetchStats(true)
   fetchCalendarEvents()
   fetchTodos()
+
+  // 检查紧急待办
+  checkUrgentTodos()
+
+  // 定时刷新统计数据（每5分钟）
+  statsRefreshInterval = setInterval(() => {
+    fetchStats(false)
+  }, 5 * 60 * 1000)
+
+  // 定时检查待办提醒（每10分钟）
+  reminderCheckInterval = setInterval(() => {
+    checkUrgentTodos()
+    fetchTodos()
+  }, 10 * 60 * 1000)
+})
+
+// 组件卸载时清除定时器和标记状态
+onUnmounted(() => {
+  // 标记组件已卸载，防止异步操作更新已卸载的组件
+  isMounted.value = false
+
+  if (statsRefreshInterval) {
+    clearInterval(statsRefreshInterval)
+  }
+  if (reminderCheckInterval) {
+    clearInterval(reminderCheckInterval)
+  }
 })
 </script>
 
@@ -645,10 +800,18 @@ onMounted(() => {
       background-color: #fff;
       border-radius: 8px;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-      transition: transform 0.3s;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
 
       &:hover {
         transform: translateY(-4px);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+      }
+
+      &:active {
+        transform: translateY(-2px);
       }
 
       .stat-icon {
@@ -659,14 +822,49 @@ onMounted(() => {
         align-items: center;
         justify-content: center;
         border-radius: 12px;
+        transition: transform 0.3s ease;
+      }
+
+      &:hover .stat-icon {
+        transform: scale(1.1);
       }
 
       .stat-content {
+        flex: 1;
+
         .stat-value {
           font-size: 28px;
           font-weight: bold;
           color: #333;
           margin-bottom: 4px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+
+          .value-number {
+            transition: transform 0.3s ease;
+          }
+
+          &.has-trend .value-number {
+            animation: valueUpdate 0.5s ease;
+          }
+
+          .trend-indicator {
+            font-size: 14px;
+            font-weight: normal;
+            padding: 2px 6px;
+            border-radius: 4px;
+
+            &.trend-up {
+              color: #67c23a;
+              background-color: #f0f9ff;
+            }
+
+            &.trend-down {
+              color: #f56c6c;
+              background-color: #fef0f0;
+            }
+          }
         }
 
         .stat-label {
@@ -675,24 +873,37 @@ onMounted(() => {
         }
       }
 
+      .stat-loading {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        color: #409eff;
+        font-size: 16px;
+      }
+
       &.stat-primary .stat-icon {
         background-color: #e6f7ff;
+        color: #1890ff;
       }
 
       &.stat-success .stat-icon {
         background-color: #f6ffed;
+        color: #52c41a;
       }
 
       &.stat-warning .stat-icon {
         background-color: #fffbe6;
+        color: #faad14;
       }
 
       &.stat-danger .stat-icon {
         background-color: #fff1f0;
+        color: #f5222d;
       }
 
       &.stat-info .stat-icon {
         background-color: #f0f5ff;
+        color: #722ed1;
       }
     }
   }
@@ -958,6 +1169,7 @@ onMounted(() => {
         &.todo-overdue {
           background-color: #fff1f0;
           border-left: 3px solid #f56c6c;
+          animation: pulse-warning 2s infinite;
 
           .todo-title {
             color: #f56c6c;
@@ -973,6 +1185,11 @@ onMounted(() => {
             color: #f56c6c;
             font-weight: 500;
           }
+
+          .todo-deadline {
+            color: #f56c6c;
+            font-weight: 500;
+          }
         }
 
         &.todo-warning {
@@ -980,6 +1197,10 @@ onMounted(() => {
           border-left: 3px solid #e6a23c;
 
           .todo-title {
+            color: #e6a23c;
+          }
+
+          .todo-deadline {
             color: #e6a23c;
           }
         }
@@ -1086,6 +1307,28 @@ onMounted(() => {
         flex: 1;
       }
     }
+  }
+}
+
+// 添加动画关键帧
+@keyframes valueUpdate {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes pulse-warning {
+  0%, 100% {
+    background-color: #fff1f0;
+  }
+  50% {
+    background-color: #ffebeb;
   }
 }
 </style>

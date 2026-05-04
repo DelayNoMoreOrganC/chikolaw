@@ -408,7 +408,7 @@
 import { ref, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Plus, ArrowLeft, ArrowRight, Bell, Location, Briefcase, Clock, Document, Files
+  Plus, ArrowLeft, ArrowRight, Bell, Location, Briefcase, Clock, Document, Files, Scale
 } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import PriorityDot from '@/components/PriorityDot.vue'
@@ -503,8 +503,9 @@ const currentDayTitle = computed(() => {
 const weekDays = computed(() => {
   const days = []
   const today = new Date()
-  const startOfWeek = new Date(today)
-  startOfWeek.setDate(today.getDate() - today.getDay())
+  const baseDate = new Date(calendarDate.value)  // 使用 calendarDate 而不是 today
+  const startOfWeek = new Date(baseDate)
+  startOfWeek.setDate(baseDate.getDate() - baseDate.getDay())
 
   for (let i = 0; i < 7; i++) {
     const day = new Date(startOfWeek)
@@ -570,16 +571,28 @@ const getEventsForHour = (hour) => {
   })
 }
 
-// 获取事件标签类型
+// 获取事件标签类型（红/橙/蓝/绿/紫）
 const getEventTagType = (type) => {
   const typeMap = {
-    'hearing': 'danger',
-    'deadline': 'warning',
-    'filing': 'primary',
-    'mediation': 'success',
-    'evidence': ''
+    'hearing': 'danger',      // 开庭/听证 → 红色
+    'deadline': 'warning',    // 审限届满 → 橙色
+    'filing': 'primary',      // 立案 → 蓝色
+    'mediation': 'success',   // 调解/和解 → 绿色
+    'evidence': 'info'        // 举证截止 → 紫色
   }
   return typeMap[type] || ''
+}
+
+// 获取事件颜色（用于边框和背景）
+const getEventColor = (type) => {
+  const colorMap = {
+    'hearing': '#f56c6c',     // 红色
+    'deadline': '#e6a23c',    // 橙色
+    'filing': '#409eff',      // 蓝色
+    'mediation': '#67c23a',   // 绿色
+    'evidence': '#909399'     // 紫色
+  }
+  return colorMap[type] || '#909399'
 }
 
 // 获取事件图标
@@ -620,6 +633,7 @@ const formatDeadline = (deadline) => {
 // 视图切换
 const handleViewChange = () => {
   // 视图切换逻辑
+  fetchEvents() // 切换视图时刷新数据
 }
 
 // 日期导航
@@ -633,6 +647,7 @@ const handlePrev = () => {
     date.setDate(date.getDate() - 1)
   }
   calendarDate.value = date
+  fetchEvents() // 切换日期时刷新事件
 }
 
 const handleNext = () => {
@@ -645,6 +660,7 @@ const handleNext = () => {
     date.setDate(date.getDate() + 1)
   }
   calendarDate.value = date
+  fetchEvents() // 切换日期时刷新事件
 }
 
 const handleToday = () => {
@@ -786,15 +802,44 @@ const handleSubmitTodo = async () => {
 // 初始化数据
 const fetchEvents = async () => {
   try {
+    let startDate, endDate
+
+    // 根据视图模式计算日期范围
+    if (viewMode.value === 'month') {
+      startDate = getCurrentMonthStart()
+      endDate = getCurrentMonthEnd()
+    } else if (viewMode.value === 'week') {
+      const today = new Date(calendarDate.value)
+      const startOfWeek = new Date(today)
+      startOfWeek.setDate(today.getDate() - today.getDay())
+      const endOfWeek = new Date(startOfWeek)
+      endOfWeek.setDate(startOfWeek.getDate() + 6)
+      startDate = formatDateToString(startOfWeek)
+      endDate = formatDateToString(endOfWeek)
+    } else {
+      // 日视图
+      startDate = formatDateToString(new Date(calendarDate.value))
+      endDate = formatDateToString(new Date(calendarDate.value))
+    }
+
     const res = await getCalendarEvents({
-      startDate: getCurrentMonthStart(),
-      endDate: getCurrentMonthEnd()
+      startDate,
+      endDate
     })
     eventList.value = res.data?.records || res.data || []
   } catch (error) {
     console.error('获取日程事件失败:', error)
     ElMessage.error('获取日程事件失败')
   }
+}
+
+// 格式化日期为YYYY-MM-DD
+const formatDateToString = (date) => {
+  const d = new Date(date)
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 const fetchTodos = async () => {
@@ -982,20 +1027,42 @@ fetchTodos()
               border-radius: 4px;
               cursor: pointer;
               font-size: 12px;
+              border-left: 3px solid;
+              transition: all 0.3s;
+
+              &:hover {
+                transform: translateX(2px);
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+              }
 
               &.type-hearing {
                 background-color: #fef0f0;
                 color: #f56c6c;
+                border-left-color: #f56c6c;
               }
 
               &.type-deadline {
                 background-color: #fdf6ec;
                 color: #e6a23c;
+                border-left-color: #e6a23c;
               }
 
               &.type-filing {
                 background-color: #ecf5ff;
                 color: #409eff;
+                border-left-color: #409eff;
+              }
+
+              &.type-mediation {
+                background-color: #f0f9ff;
+                color: #67c23a;
+                border-left-color: #67c23a;
+              }
+
+              &.type-evidence {
+                background-color: #f4f4f5;
+                color: #909399;
+                border-left-color: #909399;
               }
             }
           }
@@ -1042,15 +1109,37 @@ fetchTodos()
               border-radius: 4px;
               margin-bottom: 8px;
               cursor: pointer;
+              border-left: 3px solid;
+              transition: all 0.3s;
+
+              &:hover {
+                transform: translateX(2px);
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+              }
 
               &.type-hearing {
                 background-color: #fef0f0;
-                border-left: 3px solid #f56c6c;
+                border-left-color: #f56c6c;
               }
 
               &.type-deadline {
                 background-color: #fdf6ec;
-                border-left: 3px solid #e6a23c;
+                border-left-color: #e6a23c;
+              }
+
+              &.type-filing {
+                background-color: #ecf5ff;
+                border-left-color: #409eff;
+              }
+
+              &.type-mediation {
+                background-color: #f0f9ff;
+                border-left-color: #67c23a;
+              }
+
+              &.type-evidence {
+                background-color: #f4f4f5;
+                border-left-color: #909399;
               }
 
               .event-header {
