@@ -40,6 +40,7 @@ public class AuthController {
     private final UserRepository userRepository;
     private final JwtUtil jwtUtil;
     private final PasswordEncoder passwordEncoder;
+    private final com.lawfirm.security.LoginAttemptCache loginAttemptCache;
 
     @Autowired(required = false)
     private RedisUtil redisUtil;
@@ -58,7 +59,7 @@ public class AuthController {
 
     /**
      * 修改密码请求DTO
-     * PRD要求（580行）：密码复杂度≥8位
+     * 安全要求：密码长度≥8位，包含大小写字母、数字
      */
     @Data
     public static class ChangePasswordRequest {
@@ -66,7 +67,9 @@ public class AuthController {
         private String oldPassword;
 
         @NotBlank(message = "新密码不能为空")
-        @Size(min = 8, max = 100, message = "新密码长度不能少于8位")
+        @com.lawfirm.validation.PasswordStrength(
+            message = "新密码必须至少8位，包含大小写字母和数字"
+        )
         private String newPassword;
     }
 
@@ -78,14 +81,33 @@ public class AuthController {
         String username = request.getUsername();
         String password = request.getPassword();
 
-        // 检查登录失败次数
+        // 检查登录失败次数（优先使用Redis，否则使用内存缓存）
         String failKey = "login:fail:" + username;
         Integer failCount = null;
+
+        // 优先使用Redis
         if (redisUtil != null) {
             failCount = (Integer) redisUtil.get(failKey);
+        } else {
+            // 使用内存缓存
+            failCount = loginAttemptCache.getFailedAttempts(username);
         }
+
+        // 检查是否被锁定
         if (failCount != null && failCount >= 5) {
-            throw new AuthenticationFailedException("登录失败次数过多，账号已被锁定30分钟");
+            long remainingMinutes = 30;
+            if (redisUtil != null) {
+                Long ttl = redisUtil.getExpire(failKey);
+                if (ttl != null && ttl > 0) {
+                    remainingMinutes = TimeUnit.SECONDS.toMinutes(ttl);
+                }
+            } else {
+                remainingMinutes = loginAttemptCache.getRemainingLockTime(username);
+            }
+
+            throw new AuthenticationFailedException(
+                String.format("登录失败次数过多，账号已被锁定，请%d分钟后再试", Math.max(1, remainingMinutes))
+            );
         }
 
         try {
@@ -109,6 +131,8 @@ public class AuthController {
             // 清除登录失败次数
             if (redisUtil != null) {
                 redisUtil.delete(failKey);
+            } else {
+                loginAttemptCache.clearFailedAttempts(username);
             }
 
             // 更新最后登录时间
@@ -130,16 +154,24 @@ public class AuthController {
 
         } catch (Exception e) {
             // 认证失败，记录失败次数
-            if (redisUtil != null) {
-                int currentFailCount = failCount == null ? 1 : failCount + 1;
-                redisUtil.set(failKey, currentFailCount, 30, TimeUnit.MINUTES);
-                log.warn("用户登录失败: {}, 失败次数: {}", username, currentFailCount);
+            int currentFailCount = failCount == null ? 1 : failCount + 1;
 
-                // 如果达到5次，抛出锁定异常
-                if (currentFailCount >= 5) {
-                    throw new AuthenticationFailedException("登录失败次数过多，账号已被锁定30分钟");
-                }
+            if (redisUtil != null) {
+                redisUtil.set(failKey, currentFailCount, 30, TimeUnit.MINUTES);
+            } else {
+                // 使用内存缓存记录失败次数
+                loginAttemptCache.recordFailedAttempt(username);
             }
+
+            log.warn("用户登录失败: {}, 失败次数: {}", username, currentFailCount);
+
+            // 如果达到5次，抛出锁定异常
+            if (currentFailCount >= 5) {
+                throw new AuthenticationFailedException(
+                    "登录失败次数过多，账号已被锁定30分钟"
+                );
+            }
+
             throw new AuthenticationFailedException("用户名或密码错误");
         }
     }

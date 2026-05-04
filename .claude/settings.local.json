@@ -19,7 +19,17 @@
       "Bash(mvn compile *)",
       "Bash(xargs basename *)",
       "Bash(npm run *)",
-      "Bash(pkill *)"
+      "Bash(pkill *)",
+      "Bash(mvn clean *)",
+      "Bash(mvn compiler:compile -Dmaven.compiler.includes=\"**/validation/**,**/security/LoginAttemptCache.java,**/enums/UserStatus.java,**/controller/AuthController.java,**/entity/User.java,**/service/UserService.java\")",
+      "Bash(mvn test *)",
+      "Bash(javac -version)",
+      "Bash(tee /d/ZGAI/backend/compile-fix.log)",
+      "Bash(tee /d/ZGAI/backend/test-account-security.log)",
+      "Bash(tee /d/ZGAI/backend/test-account-security-final.log)",
+      "Bash(tee compile-check.log)",
+      "Bash(mvn test-compile *)",
+      "Bash(tee test-security.log)"
     ]
   }
 }

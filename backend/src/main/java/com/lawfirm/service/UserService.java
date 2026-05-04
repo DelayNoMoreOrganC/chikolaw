@@ -5,6 +5,7 @@ import com.lawfirm.dto.UserDTO;
 import com.lawfirm.dto.UserUpdateRequest;
 import com.lawfirm.entity.User;
 import com.lawfirm.entity.UserRole;
+import com.lawfirm.enums.UserStatus;
 import com.lawfirm.exception.DuplicateResourceException;
 import com.lawfirm.exception.InvalidParameterException;
 import com.lawfirm.exception.ResourceNotFoundException;
@@ -138,7 +139,12 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("用户", userId));
 
-        user.setStatus(status);
+        UserStatus userStatus = UserStatus.fromCode(status);
+        user.setStatus(userStatus.getCode());
+
+        log.info("用户状态变更: userId={}, username={}, status={}",
+            userId, user.getUsername(), userStatus.getDescription());
+
         userRepository.save(user);
     }
 
@@ -150,6 +156,9 @@ public class UserService {
         if (newPassword == null || newPassword.trim().isEmpty()) {
             throw new InvalidParameterException("newPassword", "新密码不能为空");
         }
+
+        // 验证密码强度
+        validatePasswordStrength(newPassword);
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("用户", userId));
@@ -170,6 +179,9 @@ public class UserService {
             throw new InvalidParameterException("newPassword", "新密码不能为空");
         }
 
+        // 验证密码强度
+        validatePasswordStrength(newPassword);
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("用户", userId));
 
@@ -179,6 +191,35 @@ public class UserService {
 
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
+    }
+
+    /**
+     * 验证密码强度
+     * 要求：至少8位，包含大小写字母和数字
+     */
+    private void validatePasswordStrength(String password) {
+        if (password == null || password.length() < 8) {
+            throw new InvalidParameterException("password", "密码长度不能少于8位");
+        }
+
+        boolean hasUppercase = false;
+        boolean hasLowercase = false;
+        boolean hasDigit = false;
+
+        for (char c : password.toCharArray()) {
+            if (Character.isUpperCase(c)) {
+                hasUppercase = true;
+            } else if (Character.isLowerCase(c)) {
+                hasLowercase = true;
+            } else if (Character.isDigit(c)) {
+                hasDigit = true;
+            }
+        }
+
+        if (!hasUppercase || !hasLowercase || !hasDigit) {
+            throw new InvalidParameterException("password",
+                "密码必须包含大写字母、小写字母和数字");
+        }
     }
 
     /**
@@ -224,7 +265,8 @@ public class UserService {
         UserDTO dto = new UserDTO();
         BeanUtils.copyProperties(user, dto);
 
-        dto.setStatusDesc(user.getStatus() == 1 ? "启用" : "禁用");
+        UserStatus userStatus = UserStatus.fromCode(user.getStatus());
+        dto.setStatusDesc(userStatus.getDescription());
 
         // 设置部门名称
         if (user.getDepartmentId() != null) {

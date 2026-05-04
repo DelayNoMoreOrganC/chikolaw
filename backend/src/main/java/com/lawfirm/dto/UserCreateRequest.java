@@ -1,5 +1,6 @@
 package com.lawfirm.dto;
 
+import com.lawfirm.validation.PasswordStrength;
 import javax.validation.constraints.Email;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.Size;
@@ -17,10 +18,10 @@ public class UserCreateRequest {
 
     /**
      * 密码
-     * PRD要求（580行）：密码复杂度≥8位
+     * 安全要求：密码长度≥8位，包含大小写字母、数字
      */
     @NotBlank(message = "密码不能为空")
-    @Size(min = 8, max = 100, message = "密码长度不能少于8位")
+    @PasswordStrength(message = "密码必须至少8位，包含大小写字母和数字")
     private String password;
 
     @NotBlank(message = "真实姓名不能为空")

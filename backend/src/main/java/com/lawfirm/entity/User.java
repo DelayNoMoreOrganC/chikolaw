@@ -1,9 +1,11 @@
 package com.lawfirm.entity;
 
 import com.lawfirm.converter.EncryptConverter;
+import com.lawfirm.enums.UserStatus;
 import javax.persistence.*;
 import javax.validation.constraints.Email;
 import javax.validation.constraints.NotBlank;
+import javax.validation.constraints.Pattern;
 import javax.validation.constraints.Size;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -29,6 +31,7 @@ public class User extends LogicalDeleteEntity {
     private Long id;
 
     @NotBlank(message = "用户名不能为空")
+    @Pattern(regexp = "^[a-zA-Z0-9_]{3,20}$", message = "用户名只能包含字母、数字和下划线，长度3-20个字符")
     @Column(name = "username", nullable = false, unique = true, length = 50)
     private String username;
 
@@ -63,4 +66,25 @@ public class User extends LogicalDeleteEntity {
 
     @Column(name = "last_login_time")
     private java.time.LocalDateTime lastLoginTime;
+
+    /**
+     * 获取用户状态枚举
+     */
+    public UserStatus getUserStatus() {
+        return UserStatus.fromCode(this.status);
+    }
+
+    /**
+     * 设置用户状态
+     */
+    public void setUserStatus(UserStatus userStatus) {
+        this.status = userStatus.getCode();
+    }
+
+    /**
+     * 检查用户是否启用
+     */
+    public boolean isActive() {
+        return getUserStatus().isActive();
+    }
 }

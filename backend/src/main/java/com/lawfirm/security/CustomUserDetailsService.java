@@ -3,10 +3,13 @@ package com.lawfirm.security;
 import com.lawfirm.entity.User;
 import com.lawfirm.entity.UserRole;
 import com.lawfirm.entity.Role;
+import com.lawfirm.enums.UserStatus;
 import com.lawfirm.repository.UserRepository;
 import com.lawfirm.repository.UserRoleRepository;
 import com.lawfirm.repository.RoleRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
@@ -20,6 +23,7 @@ import java.util.stream.Collectors;
 /**
  * 自定义UserDetailsService实现
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CustomUserDetailsService implements UserDetailsService {
@@ -32,6 +36,13 @@ public class CustomUserDetailsService implements UserDetailsService {
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("用户不存在: " + username));
+
+        // 检查用户状态
+        UserStatus userStatus = user.getUserStatus();
+        if (!userStatus.isActive()) {
+            log.warn("尝试登录已禁用用户: {}, status: {}", username, userStatus.getDescription());
+            throw new DisabledException("账号已被禁用，请联系管理员");
+        }
 
         // 加载用户角色
         List<UserRole> userRoles = userRoleRepository.findByUserId(user.getId());
@@ -105,8 +116,8 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .username(user.getUsername())
                 .password(user.getPassword())
                 .authorities(authorities)
-                .accountLocked(user.getStatus() == 0)
-                .disabled(user.getStatus() == 0)
+                .accountLocked(!userStatus.isActive())
+                .disabled(!userStatus.isActive())
                 .build();
     }
 

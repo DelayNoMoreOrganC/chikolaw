@@ -53,4 +53,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * 根据职位查找用户列表（性能优化）
      */
     List<User> findByPosition(String position);
+
+    /**
+     * 根据用户名删除用户（用于测试）
+     */
+    void deleteByUsername(String username);
 }
