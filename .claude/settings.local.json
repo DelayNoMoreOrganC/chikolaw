@@ -29,7 +29,8 @@
       "Bash(tee /d/ZGAI/backend/test-account-security-final.log)",
       "Bash(tee compile-check.log)",
       "Bash(mvn test-compile *)",
-      "Bash(tee test-security.log)"
+      "Bash(tee test-security.log)",
+      "Bash(awk '{print $9, \"\\(\" $5 \"\\)\"}')"
     ]
   }
 }

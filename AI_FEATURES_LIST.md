@@ -9,8 +9,9 @@
 
 | 功能 | 状态 | 实现方式 | 完成度 |
 |------|------|---------|--------|
-| OCR文书识别 | 🔄 迁移中 | Ollama→LLM API | 70% |
-| AI文书生成 | 🔄 迁移中 | Ollama→LLM API | 50% |
+| LLM API客户端 | ✅ 完成 | DeepSeek/通义千问 | 100% |
+| OCR文书识别 | ✅ 完成 | DeepSeek Vision API | 100% |
+| AI文书生成 | ✅ 完成 | DeepSeek Chat API | 100% |
 | AI法律问答 | 🔄 迁移中 | Ollama→LLM API | 50% |
 | RAG知识库 | ✅ 可用 | TF-IDF检索 | 60% |
 | 案件分析 | ⚠️ 基础 | 关键词匹配 | 40% |
@@ -18,34 +19,101 @@
 
 ---
 
+## 🎉 最新完成（2026-05-04）
+
+### ✅ LLM API基础集成（完成）
+
+**实现内容**:
+1. ✅ 创建LLM API客户端服务 (LLMApiService)
+   - 支持DeepSeek Chat API
+   - 支持DeepSeek Vision API
+   - 支持通义千问API
+   - 支持Ollama本地模型
+   - 实现超时和重试机制（指数退避）
+   - 完善的错误处理和日志
+
+2. ✅ 配置LLM API参数
+   - application.yml中添加LLM配置
+   - 支持环境变量存储API密钥
+   - 创建LLMProperties配置类
+   - 配置RestTemplate超时
+
+3. ✅ 迁移OCR识别功能
+   - 使用DeepSeek Vision API替代Ollama
+   - 支持图片格式OCR
+   - 保持原有接口兼容
+   - 自动选择OCR提供商
+
+4. ✅ 创建AI配置管理接口
+   - API密钥配置管理
+   - 模型参数配置
+   - 测试API连接接口
+   - 获取可用提供商列表
+   - 获取配置建议
+
+**技术特点**:
+- 使用RestTemplate调用HTTP API
+- 指数退避重试机制（1s, 2s, 4s）
+- 连接超时: 10秒（可配置）
+- 读取超时: 30秒（可配置）
+- 重试次数: 3次（可配置）
+- API密钥优先级: 环境变量 > 配置文件 > 数据库
+- 不硬编码API密钥
+
+**相关文件**:
+- `backend/src/main/java/com/lawfirm/service/LLMApiService.java`
+- `backend/src/main/java/com/lawfirm/config/LLMProperties.java`
+- `backend/src/main/java/com/lawfirm/config/RestTemplateConfig.java`
+- `backend/src/main/java/com/lawfirm/controller/AIConfigController.java`
+- `backend/src/main/resources/application.yml`
+- `backend/.env.example`
+- `LLM_API_INTEGRATION_GUIDE.md`
+
+### ✅ AI文书生成功能迁移（完成）
+
+**实现内容**:
+1. ✅ 创建文书生成服务 (DocumentGenerationService)
+   - 使用DeepSeek Chat API生成文书
+   - 支持4种文书类型：起诉状、答辩状、代理词、法律意见书
+   - 为每种文书类型定制专业的系统提示词
+   - 动态构建用户消息
+
+2. ✅ 创建文书生成DTO (DocumentGenerateRequest)
+   - 支持案件信息
+   - 支持当事人信息（个人/公司）
+   - 支持文书特定内容（诉讼请求、事实与理由等）
+
+3. ✅ 创建文书生成Controller (DocumentGenerationController)
+   - POST /ai/documents/generate - 生成法律文书
+   - GET /ai/documents/types - 获取文书类型列表
+   - 完善的请求验证
+
+4. ✅ 完善的错误处理和日志
+   - AI操作日志记录
+   - 错误信息友好化
+   - 性能指标记录
+
+**技术特点**:
+- 使用LLMApiService统一调用API
+- 专业的Prompt模板设计
+- 灵活的数据结构
+- 完整的请求验证
+- 支持自定义Prompt
+
+**相关文件**:
+- `backend/src/main/java/com/lawfirm/service/DocumentGenerationService.java`
+- `backend/src/main/java/com/lawfirm/dto/DocumentGenerateRequest.java`
+- `backend/src/main/java/com/lawfirm/controller/DocumentGenerationController.java`
+- `AI_DOCUMENT_GENERATION_MIGRATION_REPORT.md`
+- `AI_DOCUMENT_GENERATION_CONFIG_GUIDE.md`
+
+---
+
 ## 🔄 正在迁移的功能
 
-### 1. OCR文书识别（迁移优先级：P0）
-**当前**：Ollama本地模型
-**目标**：DeepSeek Vision API
-
-```yaml
-迁移方案:
-  API: DeepSeek-VL
-  功能: 图片→文本提取
-  格式: 支持JPG/PNG/PDF
-  响应: < 5s
-```
-
-### 2. AI文书生成（迁移优先级：P0）
-**当前**：Ollama本地模型
-**目标**：DeepSeek Chat API
-
-```yaml
-文书类型:
-  - 起诉状
-  - 答辩状
-  - 代理词
-  - 法律意见书
-  
-输入: 案件信息 + 当事人 + 案由
-输出: 结构化文书初稿
-```
+### 1. AI法律问答（迁移优先级：P1）
+**当前**：Ollama + TF-IDF
+**目标**：DeepSeek Chat + RAG
 
 ### 3. AI法律问答（迁移优先级：P1）
 **当前**：Ollama + TF-IDF

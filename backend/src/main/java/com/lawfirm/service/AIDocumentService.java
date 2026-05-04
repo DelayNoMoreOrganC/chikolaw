@@ -30,6 +30,7 @@ public class AIDocumentService {
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final DocumentBusinessLogicHandler businessLogicHandler;
+    private final LLMApiService llmApiService;
 
     @Value("${ai.ocr.enabled:true}")
     private boolean ocrEnabled;
@@ -119,6 +120,8 @@ public class AIDocumentService {
         switch (ocrProvider.toLowerCase()) {
             case "tesseract":
                 return performTesseractOCR(file);
+            case "deepseek":
+                return performDeepSeekVisionOCR(file);
             case "baidu":
                 return performBaiduOCR(file);
             case "aliyun":
@@ -202,6 +205,87 @@ public class AIDocumentService {
         // TODO: 集成阿里云OCR API
         log.warn("阿里云OCR尚未实现");
         return "";
+    }
+
+    /**
+     * DeepSeek Vision API（图片识别）
+     * 使用DeepSeek视觉模型进行OCR识别
+     */
+    private String performDeepSeekVisionOCR(MultipartFile file) throws Exception {
+        log.info("开始使用DeepSeek Vision API进行OCR识别，文件名: {}, 大小: {}", file.getOriginalFilename(), file.getSize());
+
+        try {
+            // 1. 检查文件类型
+            String contentType = file.getContentType();
+            if (contentType == null || (!contentType.startsWith("image/") && !contentType.equals("application/pdf"))) {
+                // 如果是PDF，先尝试提取文本
+                if (file.getOriginalFilename() != null && file.getOriginalFilename().toLowerCase().endsWith(".pdf")) {
+                    return extractTextFromPDF(file);
+                }
+                throw new AIServiceException("不支持的文件类型，仅支持图片和PDF");
+            }
+
+            // 2. 对于PDF文件，先尝试提取文本层
+            if (contentType.equals("application/pdf")) {
+                String pdfText = extractTextFromPDF(file);
+                if (pdfText != null && pdfText.trim().length() > 100) {
+                    log.info("PDF文本层提取成功，文本长度: {}", pdfText.length());
+                    return pdfText;
+                }
+                log.warn("PDF文本层提取失败或文本太少，尝试使用Vision API");
+                // TODO: 实现将PDF转换为图片后调用Vision API
+                throw new AIServiceException("扫描版PDF暂不支持，请使用有文本层的PDF或图片格式");
+            }
+
+            // 3. 转换图片为Base64
+            byte[] imageBytes = file.getBytes();
+            String base64Image = java.util.Base64.getEncoder().encodeToString(imageBytes);
+            log.debug("图片已转换为Base64，长度: {}", base64Image.length());
+
+            // 4. 构建OCR提示词
+            String ocrPrompt = "请仔细识别图片中的所有文字内容，包括中文、英文、数字、标点符号等。" +
+                    "如果是法律文书，请特别注意：\n" +
+                    "1. 案号的准确性\n" +
+                    "2. 当事人姓名、公司名称\n" +
+                    "3. 日期格式\n" +
+                    "4. 金额数字\n" +
+                    "5. 法律条文引用\n\n" +
+                    "请按照原文的格式和排版输出识别结果，保持段落结构和换行。";
+
+            // 5. 调用DeepSeek Vision API
+            log.info("调用DeepSeek Vision API进行文字识别...");
+            String ocrResult = llmApiService.visionWithDeepSeek(ocrPrompt, base64Image);
+
+            log.info("DeepSeek Vision API识别成功，文本长度: {}", ocrResult.length());
+            return ocrResult;
+
+        } catch (Exception e) {
+            log.error("DeepSeek Vision API调用失败", e);
+            throw new AIServiceException("DeepSeek Vision API调用失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 从PDF文件中提取文本（支持MultipartFile）
+     */
+    private String extractTextFromPDF(MultipartFile file) throws Exception {
+        log.debug("开始使用PDFBox提取PDF文本");
+
+        try (org.apache.pdfbox.pdmodel.PDDocument document = org.apache.pdfbox.pdmodel.PDDocument.load(file.getInputStream())) {
+            StringBuilder text = new StringBuilder();
+
+            for (int pageNum = 0; pageNum < document.getNumberOfPages(); pageNum++) {
+                org.apache.pdfbox.text.PDFTextStripper stripper = new org.apache.pdfbox.text.PDFTextStripper();
+                stripper.setStartPage(pageNum);
+                stripper.setEndPage(pageNum);
+                String pageText = stripper.getText(document);
+                text.append(pageText).append("\n");
+            }
+
+            String result = text.toString().trim();
+            log.debug("PDFBox提取完成，页数: {}, 文本长度: {}", document.getNumberOfPages(), result.length());
+            return result;
+        }
     }
 
     /**

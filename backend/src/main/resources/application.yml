@@ -108,9 +108,10 @@ crypto:
 
 ai:
   deepseek:
-    api-key: your-deepseek-api-key
-    base-url: https://api.deepseek.com/v1
-    model: deepseek-chat
+    api-key: ${DEEPSEEK_API_KEY:your-deepseek-api-key}
+    base-url: https://api.deepseek.com
+    chat-model: deepseek-chat
+    vision-model: deepseek-vl
     max-tokens: 4000
     temperature: 0.7
   ollama:
@@ -121,11 +122,31 @@ ai:
     timeout-seconds: 60
   aliyun:
     embedding:
-      api-key: your-aliyun-api-key
+      api-key: ${ALIYUN_API_KEY:your-aliyun-api-key}
       base-url: https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding
       model: text-embedding-v3
       dimension: 1024
       timeout-seconds: 30
+
+# LLM API通用配置
+llm:
+  # DeepSeek配置
+  deepseek:
+    api-key: ${DEEPSEEK_API_KEY:your-deepseek-api-key}
+    base-url: https://api.deepseek.com
+    chat-model: deepseek-chat
+    vision-model: deepseek-vl
+    max-tokens: 4000
+    temperature: 0.7
+  # 通义千问配置
+  qwen:
+    api-key: ${QWEN_API_KEY:your-qwen-api-key}
+    base-url: https://dashscope.aliyuncs.com
+    model: qwen-plus
+  # 超时配置（毫秒）
+  timeout: 30000
+  # 重试次数
+  retry: 3
 
 qdrant:
   host: localhost
