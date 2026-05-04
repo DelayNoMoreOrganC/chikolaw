@@ -178,8 +178,22 @@ const routes = [
       {
         path: 'admin-oa',
         name: 'AdminOA',
-        component: () => import('@/views/admin/index.vue'),
+        component: () => import('@/views/admin-oa/index.vue'),
         meta: { title: '行政', icon: '🏢' }
+      },
+      // 办公用品管理
+      {
+        path: 'office-supplies',
+        name: 'OfficeSupplies',
+        component: () => import('@/views/office-supplies/index.vue'),
+        meta: { title: '办公用品', icon: '📦' }
+      },
+      // 固定资产管理
+      {
+        path: 'fixed-assets',
+        name: 'FixedAssets',
+        component: () => import('@/views/fixed-assets/index.vue'),
+        meta: { title: '固定资产', icon: '🖥️' }
       },
       // 统计报表
       {
@@ -281,20 +295,6 @@ const routes = [
         name: 'Tools',
         component: () => import('@/views/tools/index.vue'),
         meta: { title: '工具集', icon: '🔧' }
-      },
-      // 办公用品管理
-      {
-        path: 'office-supplies',
-        name: 'OfficeSupplies',
-        component: () => import('@/views/office-supplies/index.vue'),
-        meta: { title: '办公用品管理', icon: '📦' }
-      },
-      // 固定资产管理
-      {
-        path: 'fixed-assets',
-        name: 'FixedAssets',
-        component: () => import('@/views/fixed-assets/index.vue'),
-        meta: { title: '固定资产管理', icon: '🏢' }
       },
       // AC精算工具
       {

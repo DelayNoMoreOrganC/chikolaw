@@ -126,7 +126,7 @@
       width="600px"
       @close="handleDialogClose"
     >
-      <el-form :model="form" :rules="rules" ref="formRef" label-width="100px">
+      <el-form :model="form" :rules="rules" ref="formRef" label-width="100px" @submit.native.prevent>
         <el-form-item label="用品名称" prop="name">
           <el-input v-model="form.name" placeholder="请输入用品名称" />
         </el-form-item>
@@ -191,7 +191,7 @@
 
     <!-- 入库对话框 -->
     <el-dialog v-model="inboundDialogVisible" title="入库" width="500px">
-      <el-form :model="inboundForm" :rules="inboundRules" ref="inboundFormRef" label-width="100px">
+      <el-form :model="inboundForm" :rules="inboundRules" ref="inboundFormRef" label-width="100px" @submit.native.prevent>
         <el-form-item label="用品" prop="supplyId">
           <el-select v-model="inboundForm.supplyId" placeholder="请选择用品" filterable style="width: 100%">
             <el-option
@@ -222,7 +222,7 @@
 
     <!-- 出库对话框 -->
     <el-dialog v-model="outboundDialogVisible" title="出库" width="500px">
-      <el-form :model="outboundForm" :rules="outboundRules" ref="outboundFormRef" label-width="100px">
+      <el-form :model="outboundForm" :rules="outboundRules" ref="outboundFormRef" label-width="100px" @submit.native.prevent>
         <el-form-item label="用品" prop="supplyId">
           <el-select v-model="outboundForm.supplyId" placeholder="请选择用品" filterable style="width: 100%">
             <el-option
@@ -293,10 +293,23 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Download, Upload, Search } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
-import request from '@/utils/request'
+import {
+  getOfficeSupplies,
+  createOfficeSupply,
+  updateOfficeSupply,
+  deleteOfficeSupply,
+  getOfficeSupplyDetail,
+  stockIn,
+  stockOut
+} from '@/api/officeSupplies'
 
 const loading = ref(false)
 const supplies = ref([])
+
+// 表单ref
+const formRef = ref(null)
+const inboundFormRef = ref(null)
+const outboundFormRef = ref(null)
 
 // 搜索表单
 const searchForm = reactive({
@@ -378,12 +391,10 @@ const currentSupply = ref(null)
 const loadSupplies = async () => {
   try {
     loading.value = true
-    const { data } = await request.get('/office-supplies', {
-      params: {
-        ...searchForm,
-        page: pagination.page - 1,
-        size: pagination.size
-      }
+    const { data } = await getOfficeSupplies({
+      ...searchForm,
+      page: pagination.page - 1,
+      size: pagination.size
     })
 
     supplies.value = data.content || data.records || []
@@ -443,7 +454,7 @@ const handleEdit = (row) => {
 // 查看
 const handleView = async (row) => {
   try {
-    const { data } = await request.get(`/office-supplies/${row.id}`)
+    const { data } = await getOfficeSupplyDetail(row.id)
     currentSupply.value = data
     detailDialogVisible.value = true
   } catch (error) {
@@ -461,7 +472,7 @@ const handleDelete = async (row) => {
       cancelButtonText: '取消'
     })
 
-    await request.delete(`/office-supplies/${row.id}`)
+    await deleteOfficeSupply(row.id)
     ElMessage.success('删除成功')
     loadSupplies()
   } catch (error) {
@@ -508,16 +519,16 @@ const handleOutbound = () => {
 // 提交表单
 const handleSubmit = async () => {
   try {
-    const valid = await form.ref.validate()
+    const valid = await formRef.value.validate()
     if (!valid) return
 
     submitting.value = true
 
     if (form.id) {
-      await request.put(`/office-supplies/${form.id}`, form)
+      await updateOfficeSupply(form.id, form)
       ElMessage.success('更新成功')
     } else {
-      await request.post('/office-supplies', form)
+      await createOfficeSupply(form)
       ElMessage.success('新增成功')
     }
 
@@ -534,12 +545,12 @@ const handleSubmit = async () => {
 // 提交入库
 const handleSubmitInbound = async () => {
   try {
-    const valid = await inboundForm.ref.validate()
+    const valid = await inboundFormRef.value.validate()
     if (!valid) return
 
     submitting.value = true
 
-    await request.post(`/office-supplies/${inboundForm.supplyId}/inbound`, inboundForm)
+    await stockIn(inboundForm.supplyId, inboundForm)
     ElMessage.success('入库成功')
     inboundDialogVisible.value = false
     loadSupplies()
@@ -554,7 +565,7 @@ const handleSubmitInbound = async () => {
 // 提交出库
 const handleSubmitOutbound = async () => {
   try {
-    const valid = await outboundForm.ref.validate()
+    const valid = await outboundFormRef.value.validate()
     if (!valid) return
 
     // 检查库存
@@ -566,7 +577,7 @@ const handleSubmitOutbound = async () => {
 
     submitting.value = true
 
-    await request.post(`/office-supplies/${outboundForm.supplyId}/outbound`, outboundForm)
+    await stockOut(outboundForm.supplyId, outboundForm)
     ElMessage.success('出库成功')
     outboundDialogVisible.value = false
     loadSupplies()
@@ -580,7 +591,7 @@ const handleSubmitOutbound = async () => {
 
 // 关闭对话框
 const handleDialogClose = () => {
-  form.ref?.resetFields()
+  formRef.value?.resetFields()
 }
 
 // 初始化

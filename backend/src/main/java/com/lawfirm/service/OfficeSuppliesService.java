@@ -136,6 +136,31 @@ public class OfficeSuppliesService {
     }
 
     /**
+     * 入库（带记录）
+     */
+    @Transactional
+    public OfficeSuppliesDTO inbound(Long id, Integer quantity, String operator, String remark) {
+        if (quantity == null || quantity <= 0) {
+            throw new RuntimeException("入库数量必须大于0");
+        }
+
+        OfficeSupplies entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("办公用品不存在"));
+
+        entity.setStockQuantity(entity.getStockQuantity() + quantity);
+        entity.setLastStockInDate(LocalDate.now());
+        updateStatus(entity);
+
+        OfficeSupplies saved = repository.save(entity);
+
+        // TODO: 保存出入库记录到SupplyRecord表
+
+        log.info("入库成功: id={}, quantity={}, operator={}, newStock={}", id, quantity, operator, saved.getStockQuantity());
+
+        return toVO(saved);
+    }
+
+    /**
      * 出库
      */
     @Transactional
@@ -156,6 +181,34 @@ public class OfficeSuppliesService {
 
         OfficeSupplies saved = repository.save(entity);
         log.info("出库成功: id={}, quantity={}, newStock={}", id, quantity, saved.getStockQuantity());
+
+        return toVO(saved);
+    }
+
+    /**
+     * 出库（带记录）
+     */
+    @Transactional
+    public OfficeSuppliesDTO outbound(Long id, Integer quantity, String receiver, String purpose) {
+        if (quantity == null || quantity <= 0) {
+            throw new RuntimeException("出库数量必须大于0");
+        }
+
+        OfficeSupplies entity = repository.findById(id)
+                .orElseThrow(() -> new RuntimeException("办公用品不存在"));
+
+        if (entity.getStockQuantity() < quantity) {
+            throw new RuntimeException("库存不足，当前库存: " + entity.getStockQuantity());
+        }
+
+        entity.setStockQuantity(entity.getStockQuantity() - quantity);
+        updateStatus(entity);
+
+        OfficeSupplies saved = repository.save(entity);
+
+        // TODO: 保存出入库记录到SupplyRecord表
+
+        log.info("出库成功: id={}, quantity={}, receiver={}, newStock={}", id, quantity, receiver, saved.getStockQuantity());
 
         return toVO(saved);
     }

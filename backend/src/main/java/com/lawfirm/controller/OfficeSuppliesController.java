@@ -90,23 +90,31 @@ public class OfficeSuppliesController {
 
     /**
      * 入库
-     * POST /api/office-supplies/{id}/stock-in
+     * POST /api/office-supplies/{id}/inbound
      */
-    @PostMapping("/{id}/stock-in")
-    public Result<OfficeSuppliesDTO> stockIn(@PathVariable Long id,
-                                           @RequestParam Integer quantity) {
-        OfficeSuppliesDTO result = officeSuppliesService.stockIn(id, quantity);
+    @PostMapping("/{id}/inbound")
+    public Result<OfficeSuppliesDTO> inbound(@PathVariable Long id,
+                                           @RequestBody java.util.Map<String, Object> params) {
+        Integer quantity = (Integer) params.get("quantity");
+        String operator = (String) params.get("operator");
+        String remark = (String) params.getOrDefault("remark", "");
+
+        OfficeSuppliesDTO result = officeSuppliesService.inbound(id, quantity, operator, remark);
         return Result.success("入库成功", result);
     }
 
     /**
      * 出库
-     * POST /api/office-supplies/{id}/stock-out
+     * POST /api/office-supplies/{id}/outbound
      */
-    @PostMapping("/{id}/stock-out")
-    public Result<OfficeSuppliesDTO> stockOut(@PathVariable Long id,
-                                           @RequestParam Integer quantity) {
-        OfficeSuppliesDTO result = officeSuppliesService.stockOut(id, quantity);
+    @PostMapping("/{id}/outbound")
+    public Result<OfficeSuppliesDTO> outbound(@PathVariable Long id,
+                                           @RequestBody java.util.Map<String, Object> params) {
+        Integer quantity = (Integer) params.get("quantity");
+        String receiver = (String) params.get("receiver");
+        String purpose = (String) params.get("purpose");
+
+        OfficeSuppliesDTO result = officeSuppliesService.outbound(id, quantity, receiver, purpose);
         return Result.success("出库成功", result);
     }
 }
