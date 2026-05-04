@@ -18,8 +18,9 @@ public class KnowledgeArticleInitService {
     public void initKnowledgeArticleTable() {
         try {
             // 检查表是否已存在
+            // 检查表是否已存在（H2数据库表名可能是大写或小写）
             Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'KNOWLEDGE_ARTICLE'",
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name IN ('KNOWLEDGE_ARTICLE', 'knowledge_article')",
                 Integer.class
             );
 

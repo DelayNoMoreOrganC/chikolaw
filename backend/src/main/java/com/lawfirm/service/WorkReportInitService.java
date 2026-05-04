@@ -22,12 +22,15 @@ public class WorkReportInitService {
     @EventListener(ApplicationReadyEvent.class)
     public void initWorkReportTable() {
         try {
-            // 删除旧表（如果存在）
-            try {
-                jdbcTemplate.execute("DROP TABLE IF EXISTS work_report");
-                log.info("Old WorkReport table dropped (if existed)");
-            } catch (Exception e) {
-                log.debug("No old table to drop: {}", e.getMessage());
+            // 检查表是否已存在（H2数据库表名可能是大写或小写）
+            Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_name IN ('WORK_REPORT', 'work_report')",
+                Integer.class
+            );
+
+            if (count != null && count > 0) {
+                log.info("WorkReport table already exists, skipping initialization");
+                return;
             }
 
             log.info("Creating WorkReport table with quoted identifiers...");

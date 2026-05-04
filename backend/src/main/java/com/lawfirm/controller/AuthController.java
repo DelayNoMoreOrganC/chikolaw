@@ -81,30 +81,12 @@ public class AuthController {
         String username = request.getUsername();
         String password = request.getPassword();
 
-        // 检查登录失败次数（优先使用Redis，否则使用内存缓存）
-        String failKey = "login:fail:" + username;
-        Integer failCount = null;
+        // 检查登录失败次数（直接使用内存缓存，因为Redis不可用）
+        Integer failCount = loginAttemptCache.getFailedAttempts(username);
 
-        // 优先使用Redis
-        if (redisUtil != null) {
-            failCount = (Integer) redisUtil.get(failKey);
-        } else {
-            // 使用内存缓存
-            failCount = loginAttemptCache.getFailedAttempts(username);
-        }
-
-        // 检查是否被锁定
-        if (failCount != null && failCount >= 5) {
-            long remainingMinutes = 30;
-            if (redisUtil != null) {
-                Long ttl = redisUtil.getExpire(failKey);
-                if (ttl != null && ttl > 0) {
-                    remainingMinutes = TimeUnit.SECONDS.toMinutes(ttl);
-                }
-            } else {
-                remainingMinutes = loginAttemptCache.getRemainingLockTime(username);
-            }
-
+        // 检查是否被锁定（修复P0漏洞3：锁定逻辑提前，用户不存在时也生效）
+        if (failCount >= 5) {
+            long remainingMinutes = loginAttemptCache.getRemainingLockTime(username);
             throw new AuthenticationFailedException(
                 String.format("登录失败次数过多，账号已被锁定，请%d分钟后再试", Math.max(1, remainingMinutes))
             );
@@ -129,11 +111,7 @@ public class AuthController {
             String token = jwtUtil.generateToken(user.getId(), user.getUsername(), authentication.getAuthorities());
 
             // 清除登录失败次数
-            if (redisUtil != null) {
-                redisUtil.delete(failKey);
-            } else {
-                loginAttemptCache.clearFailedAttempts(username);
-            }
+            loginAttemptCache.clearFailedAttempts(username);
 
             // 更新最后登录时间
             user.setLastLoginTime(java.time.LocalDateTime.now());
@@ -153,15 +131,9 @@ public class AuthController {
             return Result.success(data);
 
         } catch (Exception e) {
-            // 认证失败，记录失败次数
-            int currentFailCount = failCount == null ? 1 : failCount + 1;
-
-            if (redisUtil != null) {
-                redisUtil.set(failKey, currentFailCount, 30, TimeUnit.MINUTES);
-            } else {
-                // 使用内存缓存记录失败次数
-                loginAttemptCache.recordFailedAttempt(username);
-            }
+            // 认证失败，使用内存缓存记录失败次数
+            loginAttemptCache.recordFailedAttempt(username);
+            int currentFailCount = loginAttemptCache.getFailedAttempts(username);
 
             log.warn("用户登录失败: {}, 失败次数: {}", username, currentFailCount);
 

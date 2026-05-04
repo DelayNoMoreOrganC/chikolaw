@@ -30,16 +30,28 @@ public class LoginAttemptCache {
      */
     public void recordFailedAttempt(String username) {
         String key = "login:fail:" + username;
+        System.out.println("=== DEBUG recordFailedAttempt ===");
+        System.out.println("key: " + key);
+        System.out.println("cache size before: " + attempts.size());
+        System.out.println("contains key: " + attempts.containsKey(key));
+
         LoginAttempt attempt = attempts.compute(key, (k, v) -> {
+            System.out.println("compute: v is null = " + (v == null));
             if (v == null) {
-                return new LoginAttempt();
+                LoginAttempt newAttempt = new LoginAttempt();
+                System.out.println("created new attempt, count=" + newAttempt.getCount());
+                return newAttempt;
             }
+            int oldCount = v.getCount();
             v.increment();
+            System.out.println("increment: " + oldCount + " -> " + v.getCount());
             return v;
         });
 
-        log.warn("用户登录失败: {}, 失败次数: {}, 锁定状态: {}",
-            username, attempt.getCount(), attempt.isLocked());
+        System.out.println("final count: " + attempt.getCount());
+        System.out.println("cache size after: " + attempts.size());
+        log.warn("用户登录失败: {}, 失败次数: {}, 锁定状态: {}, cache总条数={}",
+            username, attempt.getCount(), attempt.isLocked(), attempts.size());
     }
 
     /**
@@ -48,7 +60,9 @@ public class LoginAttemptCache {
     public Integer getFailedAttempts(String username) {
         String key = "login:fail:" + username;
         LoginAttempt attempt = attempts.get(key);
-        return attempt != null ? attempt.getCount() : 0;
+        int count = attempt != null ? attempt.getCount() : 0;
+        log.info("获取失败次数 - key={}, count={}, cache大小={}", key, count, attempts.size());
+        return count;
     }
 
     /**

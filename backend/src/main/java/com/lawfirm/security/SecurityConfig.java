@@ -54,7 +54,13 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(List.of("*"));
+        // 修复P0漏洞1: 限制允许的源，防止任意源访问
+        configuration.setAllowedOriginPatterns(Arrays.asList(
+            "http://localhost:3017",      // 前端开发环境
+            "http://localhost:5173",      // Vite默认端口
+            "http://localhost:8080",      // 后端端口（用于同源测试）
+            "https://your-domain.com"     // 生产环境（实际部署时修改）
+        ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setAllowCredentials(true);
@@ -101,10 +107,7 @@ public class SecurityConfig {
                         "/error",
                         "/error/**",
                         "/init/**",  // 开发环境测试数据初始化
-                        "/h2-console/**",  // H2数据库控制台
-                        "/knowledge/**",  // 开发环境：临时放开知识库API
-                        "/ai/**",  // 开发环境：临时放开AI功能API
-                        "/cases/**"  // 开发环境：临时放开案件API（测试）
+                        "/h2-console/**"  // H2数据库控制台
                 ).permitAll()
 
                 // 放行Swagger UI
