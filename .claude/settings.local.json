@@ -30,7 +30,30 @@
       "Bash(tee compile-check.log)",
       "Bash(mvn test-compile *)",
       "Bash(tee test-security.log)",
-      "Bash(awk '{print $9, \"\\(\" $5 \"\\)\"}')"
+      "Bash(awk '{print $9, \"\\(\" $5 \"\\)\"}')",
+      "Bash(git *)",
+      "Bash(mvn -q clean compile)",
+      "Bash(mvn package *)",
+      "Bash(awk '{print $2}')",
+      "Bash(xargs -r kill -9)",
+      "Bash(findstr :3017)",
+      "Bash(findstr 22752)",
+      "Bash(mvn spring-boot:run -Dspring-boot.run.arguments=\"--spring.jpa.hibernate.ddl-auto=update\")",
+      "Bash(dir data\\\\*.db)",
+      "Bash(findstr java *)",
+      "Bash(mvn spring-boot:run)",
+      "Bash(tee backend-start.log)",
+      "Bash(findstr \":8080\")",
+      "Bash(python -c \"print\\('A'*10000\\)\")",
+      "Bash(findstr :8080)",
+      "Bash(awk '{print $5}')",
+      "Bash(awk '{print $6, $7, $8, $9}')",
+      "Bash(wmic process *)",
+      "Bash(findstr \"lawfirm\")",
+      "Bash(findstr \"LISTENING\")",
+      "Bash(taskkill //F //IM java.exe)",
+      "Bash(rm -f data/lawfirm.mv.db data/lawfirm.trace.db)",
+      "Bash(findstr \":3017\")"
     ]
   }
 }
