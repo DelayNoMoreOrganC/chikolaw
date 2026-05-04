@@ -1,6 +1,7 @@
 package com.lawfirm.controller;
 
 import com.lawfirm.dto.*;
+import com.lawfirm.annotation.AuditLog;
 import com.lawfirm.entity.CaseRecord;
 import com.lawfirm.entity.CaseTimeline;
 import com.lawfirm.entity.User;
@@ -48,6 +49,7 @@ public class CaseController {
      */
     @PostMapping
     @PreAuthorize("isAuthenticated()")
+    @AuditLog(value = "创建案件", operationType = "CREATE")
     public Result<CaseDetailVO> createCase(
             @Valid @RequestBody CaseCreateRequest request) {
         try {
@@ -86,6 +88,7 @@ public class CaseController {
      */
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('CASE_EDIT')")
+    @AuditLog(value = "更新案件", operationType = "UPDATE")
     public Result<CaseDetailVO> updateCase(
             @PathVariable Long id,
             @Valid @RequestBody CaseUpdateRequest request) {
@@ -98,6 +101,7 @@ public class CaseController {
      */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('CASE_DELETE')")
+    @AuditLog(value = "删除案件", operationType = "DELETE")
     public Result<Void> deleteCase(@PathVariable Long id) {
         caseService.deleteCase(id);
         return Result.success();
@@ -108,6 +112,7 @@ public class CaseController {
      */
     @PutMapping("/{id}/restore")
     @PreAuthorize("hasAuthority('CASE_DELETE')")
+    @AuditLog(value = "恢复案件", operationType = "RESTORE")
     public Result<String> restoreCase(@PathVariable Long id) {
         caseService.restoreCase(id);
         return Result.success("案件恢复成功");
@@ -118,6 +123,7 @@ public class CaseController {
      */
     @PutMapping("/{id}/status")
     @PreAuthorize("hasAuthority('CASE_EDIT')")
+    @AuditLog(value = "变更案件状态", operationType = "UPDATE")
     public Result<Void> changeStatus(
             @PathVariable Long id,
             @Valid @RequestBody StatusChangeRequest request) {
@@ -160,6 +166,7 @@ public class CaseController {
      */
     @PutMapping("/{id}/archive")
     @PreAuthorize("hasAuthority('CASE_ARCHIVE')")
+    @AuditLog(value = "归档案件", operationType = "ARCHIVE")
     public Result<Void> archiveCase(
             @PathVariable Long id,
             @Valid @RequestBody ArchiveRequest request) {

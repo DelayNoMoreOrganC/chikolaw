@@ -1,6 +1,7 @@
 package com.lawfirm.service;
 
 import com.lawfirm.dto.CaseDocumentDTO;
+import com.lawfirm.entity.Case;
 import com.lawfirm.entity.CaseDocument;
 import com.lawfirm.repository.CaseDocumentRepository;
 import com.lawfirm.repository.CaseRepository;
@@ -13,9 +14,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -29,6 +33,7 @@ public class CaseDocumentService {
 
     private final CaseDocumentRepository caseDocumentRepository;
     private final CaseRepository caseRepository;
+    private final ObjectStorageService objectStorageService;
 
     private static final String UPLOAD_BASE_DIR = "uploads/documents/";
 
@@ -39,36 +44,25 @@ public class CaseDocumentService {
     public CaseDocumentDTO uploadDocument(Long caseId, MultipartFile file,
                                           String documentType, String folderPath,
                                           Long userId) throws IOException {
-        // 验证案件是否存在
-        if (!caseRepository.existsById(caseId)) {
-            throw new IllegalArgumentException("案件不存在");
-        }
+        Case caseEntity = caseRepository.findById(caseId)
+                .orElseThrow(() -> new IllegalArgumentException("案件不存在"));
 
-        // 创建目录
-        Path uploadPath = Paths.get(UPLOAD_BASE_DIR, caseId.toString());
-        if (!Files.exists(uploadPath)) {
-            Files.createDirectories(uploadPath);
-        }
-
-        // 保存文件
         String originalFilename = file.getOriginalFilename();
-        String fileExtension = originalFilename.substring(originalFilename.lastIndexOf("."));
-        String newFilename = System.currentTimeMillis() + "_" + originalFilename;
-        Path filePath = uploadPath.resolve(newFilename);
-        Files.copy(file.getInputStream(), filePath);
+        String newFilename = buildStandardFileName(caseEntity, documentType, originalFilename);
+        String filePath = storeFile(caseId, newFilename, file);
 
         // 创建文档记录
         CaseDocument document = new CaseDocument();
         document.setCaseId(caseId);
-        document.setDocumentName(originalFilename);
+        document.setDocumentName(newFilename);
         document.setDocumentType(documentType);
-        document.setFilePath(filePath.toString());
+        document.setFilePath(filePath);
         document.setFileSize(file.getSize());
         document.setFolderPath(folderPath);
         document.setUploadBy(userId);
 
         CaseDocument saved = caseDocumentRepository.save(document);
-        log.info("上传案件文档成功: caseId={}, fileName={}", caseId, originalFilename);
+        log.info("上传案件文档成功: caseId={}, fileName={}, path={}", caseId, newFilename, filePath);
 
         return convertToDTO(saved);
     }
@@ -139,9 +133,13 @@ public class CaseDocumentService {
 
         // 删除物理文件
         try {
-            Path filePath = Paths.get(document.getFilePath());
-            if (Files.exists(filePath)) {
-                Files.delete(filePath);
+            if (isMinioPath(document.getFilePath())) {
+                objectStorageService.delete(document.getFilePath());
+            } else {
+                Path filePath = Paths.get(document.getFilePath());
+                if (Files.exists(filePath)) {
+                    Files.delete(filePath);
+                }
             }
         } catch (IOException e) {
             log.warn("删除物理文件失败: {}", document.getFilePath(), e);
@@ -167,6 +165,15 @@ public class CaseDocumentService {
         return convertToDTO(updated);
     }
 
+    public InputStream openDocumentStream(Long id) throws IOException {
+        CaseDocument document = caseDocumentRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("文档不存在"));
+        if (isMinioPath(document.getFilePath())) {
+            return objectStorageService.download(document.getFilePath());
+        }
+        return Files.newInputStream(Paths.get(document.getFilePath()));
+    }
+
     /**
      * 转换为DTO
      */
@@ -185,5 +192,46 @@ public class CaseDocumentService {
         dto.setCreatedAt(document.getCreatedAt());
         dto.setUpdatedAt(document.getUpdatedAt());
         return dto;
+    }
+
+    private String storeFile(Long caseId, String newFilename, MultipartFile file) throws IOException {
+        String objectName = "cases/" + caseId + "/" + newFilename;
+        try {
+            return objectStorageService.upload(objectName, file);
+        } catch (RuntimeException e) {
+            log.warn("MinIO不可用，回退到本地文档目录: {}", e.getMessage());
+            Path uploadPath = Paths.get(UPLOAD_BASE_DIR, caseId.toString());
+            Files.createDirectories(uploadPath);
+            Path filePath = uploadPath.resolve(newFilename);
+            Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
+            return filePath.toString();
+        }
+    }
+
+    private String buildStandardFileName(Case caseEntity, String documentType, String originalFilename) {
+        String extension = "";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+        }
+        String client = firstNonBlank(caseEntity.getEntrustingBankName(), caseEntity.getCaseName(), "案件");
+        String title = firstNonBlank(documentType, "文书");
+        return sanitize(client + "_" + caseEntity.getCaseName() + "_" + title + "_" + LocalDate.now() + extension);
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private String sanitize(String value) {
+        return value.replaceAll("[\\\\/:*?\"<>|]", "_");
+    }
+
+    private boolean isMinioPath(String filePath) {
+        return filePath != null && filePath.startsWith("minio:");
     }
 }

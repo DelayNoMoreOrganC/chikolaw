@@ -799,11 +799,7 @@ const fetchEvents = async () => {
 
 const fetchTodos = async () => {
   try {
-    const res = await getTodos({
-      status: 'PENDING',
-      page: 1,
-      size: 100
-    })
+    const res = await getTodos(0, 100)
     todoList.value = res.data?.records || res.data || []
   } catch (error) {
     console.error('获取待办事项失败:', error)

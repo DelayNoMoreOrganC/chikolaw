@@ -26,6 +26,20 @@ export function createCase(data) {
   })
 }
 
+// 批量导入金融不良资产案件
+export function importNpaCases(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request({
+    url: '/cases/import/npa',
+    method: 'post',
+    data: formData,
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  })
+}
+
 // 更新案件
 export function updateCase(id, data) {
   return request({
@@ -512,3 +526,33 @@ export function deletePersonnel(caseId, personnelId) {
     method: 'delete'
   })
 }
+
+// ==================== 利益冲突审查 ====================
+
+// 检查客户名称冲突
+export function checkClientNameConflict(clientName) {
+  return request({
+    url: '/conflict-check/check-client',
+    method: 'post',
+    params: { clientName }
+  })
+}
+
+// 检查当事人冲突
+export function checkPartyConflict(parties) {
+  return request({
+    url: '/conflict-check/check-party',
+    method: 'post',
+    data: parties
+  })
+}
+
+// 综合利益冲突检查
+export function comprehensiveConflictCheck(parties) {
+  return request({
+    url: '/conflict-check/comprehensive',
+    method: 'post',
+    data: parties
+  })
+}
+

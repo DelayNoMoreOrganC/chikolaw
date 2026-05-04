@@ -1,5 +1,6 @@
 package com.lawfirm.controller;
 
+import com.lawfirm.annotation.AuditLog;
 import com.lawfirm.entity.SystemConfig;
 import com.lawfirm.service.SystemConfigService;
 import com.lawfirm.util.Result;
@@ -22,10 +23,42 @@ public class SystemConfigController {
     private final SystemConfigService systemConfigService;
 
     /**
+     * 获取聚合配置
+     * GET /api/system/config
+     */
+    @GetMapping
+    public Result<Map<String, Object>> getSystemConfig() {
+        try {
+            Map<String, Object> result = systemConfigService.getAllConfigGroups();
+            return Result.success(result);
+        } catch (Exception e) {
+            log.error("获取系统配置失败", e);
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 批量更新聚合配置
+     * PUT /api/system/config
+     */
+    @PutMapping
+    @AuditLog(value = "更新系统配置", operationType = "UPDATE", logParams = false)
+    public Result<Map<String, Object>> updateSystemConfig(@RequestBody Map<String, Object> params) {
+        try {
+            systemConfigService.saveConfigGroups(params);
+            return Result.success(systemConfigService.getAllConfigGroups());
+        } catch (Exception e) {
+            log.error("更新系统配置失败", e);
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
      * 创建或更新配置
      * POST /api/system-config
      */
     @PostMapping
+    @AuditLog(value = "保存系统配置", operationType = "UPDATE", logParams = false)
     public Result<SystemConfig> saveConfig(@RequestBody Map<String, String> params) {
         try {
             String configKey = params.get("configKey");
@@ -78,6 +111,7 @@ public class SystemConfigController {
      * DELETE /api/system-config/{key}
      */
     @DeleteMapping("/{key}")
+    @AuditLog(value = "删除系统配置", operationType = "DELETE", logParams = false)
     public Result<Void> deleteConfig(@PathVariable String key) {
         try {
             systemConfigService.deleteConfig(key);
@@ -124,6 +158,7 @@ public class SystemConfigController {
      * POST /api/system-config/batch
      */
     @PostMapping("/batch")
+    @AuditLog(value = "批量保存系统配置", operationType = "UPDATE", logParams = false)
     public Result<Void> batchSaveConfigs(@RequestBody Map<String, Object> params) {
         try {
             @SuppressWarnings("unchecked")

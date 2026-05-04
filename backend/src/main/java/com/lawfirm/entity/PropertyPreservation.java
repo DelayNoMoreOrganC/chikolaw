@@ -61,6 +61,18 @@ public class PropertyPreservation extends LogicalDeleteEntity {
     @Column(name = "guarantee_type", length = 50)
     private String guaranteeType;
 
+    @Column(name = "registry_search_record", length = 500)
+    private String registrySearchRecord;
+
+    @Column(name = "collateral_status", length = 100)
+    private String collateralStatus;
+
+    @Column(name = "seizure_sequence", length = 50)
+    private String seizureSequence;
+
+    @Column(name = "risk_warning", length = 500)
+    private String riskWarning;
+
     @Lob
     private String remarks;
 

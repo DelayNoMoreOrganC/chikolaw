@@ -56,6 +56,12 @@ const routes = [
             meta: { title: '新建案件' }
           },
           {
+            path: 'batch-import',
+            name: 'CaseBatchImport',
+            component: () => import('@/views/case/batch-import.vue'),
+            meta: { title: '批量收案' }
+          },
+          {
             path: ':id/edit',
             name: 'CaseEdit',
             component: () => import('@/views/case/create.vue'),
@@ -182,6 +188,19 @@ const routes = [
         component: () => import('@/views/statistics/index.vue'),
         meta: { title: '统计', icon: '📈' }
       },
+      {
+        path: 'legal-search',
+        name: 'LegalSearch',
+        component: () => import('@/views/legal-search/index.vue'),
+        meta: { title: '法律检索', icon: '📚' }
+      },
+      // AI智能中心
+      {
+        path: 'ai-hub',
+        name: 'AIHub',
+        component: () => import('@/views/ai/index.vue'),
+        meta: { title: 'AI智能中心', icon: '🤖' }
+      },
       // 知识库
       {
         path: 'knowledge',
@@ -276,6 +295,13 @@ const routes = [
         name: 'FixedAssets',
         component: () => import('@/views/fixed-assets/index.vue'),
         meta: { title: '固定资产管理', icon: '🏢' }
+      },
+      // AC精算工具
+      {
+        path: 'ac-calculator',
+        name: 'ACCalculator',
+        component: () => import('@/views/tools/ac-calculator.vue'),
+        meta: { title: '债权精算', icon: '🧮' }
       },
       // 系统设置
       {

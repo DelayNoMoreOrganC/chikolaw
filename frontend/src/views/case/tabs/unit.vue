@@ -366,6 +366,13 @@
 
 <script setup>
 import { ref, reactive, onMounted, watch } from 'vue'
+
+// 监听案件数据变化，加载受理单位数据
+watch(() => props.caseData.id, (newId) => {
+  if (newId) {
+    loadUnitData()
+  }
+}, { immediate: true })
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import {

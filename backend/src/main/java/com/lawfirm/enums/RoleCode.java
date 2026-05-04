@@ -7,10 +7,12 @@ import com.fasterxml.jackson.annotation.JsonValue;
  */
 public enum RoleCode {
     ADMIN("系统管理员"),
+    DIRECTOR("主任"),
     MANAGER("主任"),
     LAWYER_MAIN("主办律师"),
     LAWYER_ASSIST("协办律师"),
     ASSISTANT("律师助理"),
+    FINANCE("财务"),
     GUEST("访客");
 
     private final String description;

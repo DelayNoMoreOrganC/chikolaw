@@ -32,7 +32,7 @@ public class WorkReport extends LogicalDeleteEntity {
     @Column(name = "report_type", nullable = false, length = 20)
     private String reportType; // DAILY, WEEKLY, MONTHLY, PROJECT
 
-    @Column(name = "content", columnDefinition = "TEXT")
+    @Column(name = "content", length = 1000)
     private String content;
 
     @Column(name = "work_summary", length = 1000)

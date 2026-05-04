@@ -311,7 +311,14 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+
+// 监听案件数据变化，加载文档数据
+watch(() => props.caseData.id, (newId) => {
+  if (newId) {
+    loadDocuments()
+  }
+}, { immediate: true })
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { generateDoc, ocrUpload, extractInfo } from '@/api/ai'
 import {

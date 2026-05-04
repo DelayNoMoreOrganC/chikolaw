@@ -224,7 +224,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Search, Download, Plus, Paperclip, User, Upload, ArrowDown, Document
@@ -515,8 +515,12 @@ const handleSubmitRecord = async () => {
   }
 }
 
-// 初始化
-fetchRecords()
+// 监听案件数据变化，加载记录
+watch(() => props.caseData.id, (newId) => {
+  if (newId) {
+    fetchRecords()
+  }
+}, { immediate: true })
 </script>
 
 <style scoped lang="scss">

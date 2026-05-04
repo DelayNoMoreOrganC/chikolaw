@@ -27,22 +27,29 @@
         <div class="form-section">
           <div class="section-header">
             <h3>A. 基本信息</h3>
-            <el-button type="primary" size="small" @click="handleAIFill">
-              <el-icon><MagicStick /></el-icon>
-              AI智能填充
-            </el-button>
+            <div>
+              <el-button type="warning" size="small" @click="handleConflictCheck">
+                <el-icon><Warning /></el-icon>
+                利益冲突审查
+              </el-button>
+              <el-button type="primary" size="small" @click="handleAIFill">
+                <el-icon><MagicStick /></el-icon>
+                AI智能填充
+              </el-button>
+            </div>
           </div>
 
           <el-row :gutter="20">
             <el-col :span="12">
               <el-form-item label="案件类型" prop="caseType">
-                <el-select v-model="formData.caseType" placeholder="请选择案件类型">
+                <el-select v-model="formData.caseType" placeholder="请选择案件类型" @change="handleCaseTypeChange">
                   <el-option label="民事" value="CIVIL" />
                   <el-option label="商事" value="COMMERCIAL" />
                   <el-option label="仲裁" value="ARBITRATION" />
                   <el-option label="刑事" value="CRIMINAL" />
                   <el-option label="行政" value="ADMINISTRATIVE" />
                   <el-option label="非诉" value="NON_LITIGATION" />
+                  <el-option label="金融不良资产" value="FINANCIAL_NPA" />
                 </el-select>
               </el-form-item>
             </el-col>
@@ -93,6 +100,23 @@
                     :key="reason"
                     :label="reason"
                     :value="reason"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="12">
+              <el-form-item label="业务类型" prop="businessType">
+                <el-select
+                  v-model="formData.businessType"
+                  placeholder="请选择业务类型"
+                  filterable
+                >
+                  <el-option
+                    v-for="type in businessTypeOptions"
+                    :key="type.value"
+                    :label="type.label"
+                    :value="type.value"
                   />
                 </el-select>
               </el-form-item>
@@ -248,6 +272,355 @@
                     :value="assistant.id"
                   />
                 </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </div>
+
+        <!-- A2. 补充信息（对标行政管理要求） -->
+        <div class="form-section" style="border: 3px solid #ff0000; padding: 20px; margin: 20px 0;">
+          <div class="section-header">
+            <h3 style="color: #ff0000; font-size: 24px;">A2. 补充信息（包含新增字段：其他委托人、审级、法律援助）</h3>
+          </div>
+
+          <el-row :gutter="20">
+            <el-col :span="8">
+              <el-form-item label="收案日期" prop="acceptanceDate">
+                <el-date-picker
+                  v-model="formData.acceptanceDate"
+                  type="date"
+                  placeholder="案件立案日期"
+                  value-format="YYYY-MM-DD"
+                  :disabled-date="(time) => time.getTime() > Date.now()"
+                  style="width: 100%"
+                />
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="8">
+              <el-form-item label="法院案号" prop="courtCaseNumber">
+                <el-input
+                  v-model="formData.courtCaseNumber"
+                  placeholder="格式：2025-京0105民初1234号"
+                  clearable
+                >
+                  <template #append>
+                    <el-tooltip content="法院案号格式示例：（2025）京0105民初1234号、（2025）粤0106民初5678号" placement="top">
+                      <el-icon><QuestionFilled /></el-icon>
+                    </el-tooltip>
+                  </template>
+                </el-input>
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="8">
+              <el-form-item label="开庭日期" prop="hearingDate" v-if="isLitigationCase">
+                <el-date-picker
+                  v-model="formData.hearingDate"
+                  type="date"
+                  placeholder="选择开庭日期"
+                  value-format="YYYY-MM-DD"
+                  :disabled-date="(time) => {
+                    if (!formData.acceptanceDate) return false
+                    return time.getTime() < new Date(formData.acceptanceDate).getTime()
+                  }"
+                  style="width: 100%"
+                />
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="12" v-if="formData.caseType === 'CRIMINAL'">
+              <el-form-item label="代理类型" prop="representationType">
+                <el-radio-group v-model="formData.representationType">
+                  <el-radio label="PLAINTIFF">原告（被害人）</el-radio>
+                  <el-radio label="DEFENDANT">被告</el-radio>
+                </el-radio-group>
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="12" v-if="isAdvisoryCase">
+              <el-form-item label="合同开始日期" prop="contractStartDate">
+                <el-date-picker
+                  v-model="formData.contractStartDate"
+                  type="date"
+                  placeholder="选择开始日期"
+                  value-format="YYYY-MM-DD"
+                  style="width: 100%"
+                />
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="12" v-if="isAdvisoryCase">
+              <el-form-item label="合同结束日期" prop="contractEndDate">
+                <el-date-picker
+                  v-model="formData.contractEndDate"
+                  type="date"
+                  placeholder="选择结束日期"
+                  value-format="YYYY-MM-DD"
+                  style="width: 100%"
+                />
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="24">
+              <el-form-item label="案源人（可多选）" prop="sourcePerson">
+                <el-select
+                  v-model="formData.sourcePerson"
+                  placeholder="请选择案源人（可多选）"
+                  multiple
+                  filterable
+                  allow-create
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="lawyer in lawyerList"
+                    :key="lawyer.id"
+                    :label="lawyer.name"
+                    :value="lawyer.name"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="12" style="background: #fffbe6; padding: 10px; border: 2px solid #1890ff;">
+              <el-form-item label="🆕 其他委托人（可多选）">
+                <el-select
+                  v-model="formData.otherClients"
+                  placeholder="请选择其他委托人（可多选）"
+                  multiple
+                  filterable
+                  allow-create
+                  style="width: 100%"
+                >
+                  <el-option
+                    v-for="client in clientList"
+                    :key="client.id"
+                    :label="client.name"
+                    :value="client.name"
+                  />
+                </el-select>
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="12" style="background: #fffbe6; padding: 10px; border: 2px solid #1890ff;">
+              <el-form-item label="🆕 审级（可多选）">
+                <el-select
+                  v-model="formData.procedureLevels"
+                  placeholder="请选择审级（可多选）"
+                  multiple
+                  style="width: 100%"
+                >
+                  <el-option label="一审" value="一审" />
+                  <el-option label="二审" value="二审" />
+                  <el-option label="再审" value="再审" />
+                  <el-option label="执行" value="执行" />
+                  <el-option label="其他" value="其他" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="12" style="background: #fffbe6; padding: 10px; border: 2px solid #1890ff;">
+              <el-form-item label="🆕 是否法律援助案件">
+                <el-switch v-model="formData.isLegalAid" />
+                <span style="margin-left: 10px; color: #909399; font-weight: bold;">
+                  {{ formData.isLegalAid ? '✅ 是' : '❌ 否' }}
+                </span>
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="12" v-if="formData.caseType === 'CRIMINAL'">
+              <el-form-item label="犯罪嫌疑人" prop="criminalSuspect">
+                <el-input
+                  v-model="formData.criminalSuspect"
+                  placeholder="请输入犯罪嫌疑人姓名"
+                />
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="12">
+              <el-form-item label="涉案标的(万元)" prop="disputedAmount">
+                <el-input-number
+                  v-model="formData.disputedAmount"
+                  :min="0"
+                  :precision="2"
+                  :step="1"
+                  controls-position="right"
+                  style="width: 100%"
+                  placeholder="风险代理必填"
+                />
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="12">
+              <el-form-item label="主办部门（可多选）">
+                <el-select
+                  v-model="formData.hostDepartment"
+                  placeholder="根据主办律师自动关联"
+                  multiple
+                  disabled
+                  style="width: 100%"
+                >
+                </el-select>
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="12">
+              <el-form-item label="协办部门（可多选）">
+                <el-select
+                  v-model="formData.coDepartments"
+                  placeholder="根据协办律师自动关联"
+                  multiple
+                  disabled
+                  style="width: 100%"
+                >
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </div>
+
+        <!-- A3. 分配情况 -->
+        <div class="form-section">
+          <div class="section-header">
+            <h3>A3. 分配情况</h3>
+          </div>
+
+          <el-row :gutter="20">
+            <el-col :span="8">
+              <el-form-item label="案源人比例(%)" prop="sourcePersonPercentage">
+                <el-input-number
+                  v-model="formData.sourcePersonPercentage"
+                  :min="0"
+                  :max="100"
+                  :precision="2"
+                  :step="1"
+                  controls-position="right"
+                  style="width: 100%"
+                  @change="validatePercentageSum"
+                />
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="8">
+              <el-form-item label="承办部门比例(%)" prop="departmentPercentage">
+                <el-input-number
+                  v-model="formData.departmentPercentage"
+                  :min="0"
+                  :max="100"
+                  :precision="2"
+                  :step="1"
+                  controls-position="right"
+                  style="width: 100%"
+                  @change="validatePercentageSum"
+                />
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="8">
+              <el-form-item label="律所提留比例(%)" prop="firmPercentage">
+                <el-input-number
+                  v-model="formData.firmPercentage"
+                  :min="0"
+                  :max="100"
+                  :precision="2"
+                  :step="1"
+                  controls-position="right"
+                  style="width: 100%"
+                  @change="validatePercentageSum"
+                />
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="24">
+              <el-alert
+                v-if="percentageSum !== 100 && percentageSum !== null"
+                :title="`当前总比例: ${percentageSum}%，必须等于100%`"
+                type="warning"
+                :closable="false"
+                style="margin-top: 10px"
+              />
+              <el-alert
+                v-else-if="percentageSum === 100"
+                title="分配比例正确（100%）"
+                type="success"
+                :closable="false"
+                style="margin-top: 10px"
+              />
+            </el-col>
+          </el-row>
+        </div>
+
+        <!-- A1. 金融不良资产专项 -->
+        <div v-if="formData.caseType === 'FINANCIAL_NPA'" class="form-section">
+          <div class="section-header">
+            <h3>A1. 金融不良资产专项</h3>
+          </div>
+
+          <el-row :gutter="20">
+            <el-col :span="8">
+              <el-form-item label="业务子类">
+                <el-select v-model="formData.npaSubtype" placeholder="请选择业务子类">
+                  <el-option label="信用贷" value="CREDIT_LOAN" />
+                  <el-option label="抵押贷" value="MORTGAGE_LOAN" />
+                  <el-option label="担保贷" value="GUARANTEE_LOAN" />
+                  <el-option label="信用卡" value="CREDIT_CARD" />
+                  <el-option label="承兑汇票" value="ACCEPTANCE_BILL" />
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="委托银行">
+                <el-input v-model="formData.entrustingBankName" placeholder="请输入委托银行名称" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="资产批次号">
+                <el-input v-model="formData.assetBatchNo" placeholder="请输入批次号" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="转让协议号">
+                <el-input v-model="formData.transferAgreementNo" placeholder="请输入转让协议编号" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="借款合同号">
+                <el-input v-model="formData.loanContractNo" placeholder="请输入借款合同号" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="担保方式">
+                <el-input v-model="formData.guaranteeType" placeholder="保证/抵押/质押/信用" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="本金余额">
+                <el-input-number v-model="formData.principalBalance" :precision="2" :min="0" style="width: 100%" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="利息余额">
+                <el-input-number v-model="formData.interestBalance" :precision="2" :min="0" style="width: 100%" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="执行回款">
+                <el-input-number v-model="formData.executionRecoveryAmount" :precision="2" :min="0" style="width: 100%" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="抵押物状态">
+                <el-input v-model="formData.collateralStatus" placeholder="查封/轮候/已处置等" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="保全状态">
+                <el-input v-model="formData.preservationStatus" placeholder="未申请/已保全/已解除等" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item label="终本状态">
+                <el-input v-model="formData.terminationStatus" placeholder="非终本/终本/恢复执行" />
               </el-form-item>
             </el-col>
           </el-row>
@@ -533,6 +906,62 @@
                 />
               </el-form-item>
             </el-col>
+
+            <el-col :span="12" style="background: #f6ffed; padding: 10px; border: 2px solid #52c41a;">
+              <el-form-item label="🆕 固定费用(元)">
+                <el-input-number
+                  v-model="formData.fixedFee"
+                  :min="0"
+                  :precision="2"
+                  :step="100"
+                  controls-position="right"
+                  style="width: 100%"
+                  placeholder="固定收费案件填写"
+                />
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="12" style="background: #f6ffed; padding: 10px; border: 2px solid #52c41a;">
+              <el-form-item label="🆕 风险比例(%)">
+                <el-input-number
+                  v-model="formData.riskRatio"
+                  :min="0"
+                  :max="100"
+                  :precision="2"
+                  :step="1"
+                  controls-position="right"
+                  style="width: 100%"
+                  placeholder="按比例收费时填写"
+                />
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="12" style="background: #f6ffed; padding: 10px; border: 2px solid #52c41a;">
+              <el-form-item label="🆕 风险费用(元)">
+                <el-input-number
+                  v-model="formData.riskFee"
+                  :min="0"
+                  :precision="2"
+                  :step="100"
+                  controls-position="right"
+                  style="width: 100%"
+                  placeholder="按金额收费时填写"
+                />
+              </el-form-item>
+            </el-col>
+
+            <el-col :span="24" style="background: #f6ffed; padding: 10px; border: 2px solid #52c41a;">
+              <el-form-item label="🆕 收费方式详细说明">
+                <el-input
+                  v-model="formData.feeRemarkDetail"
+                  type="textarea"
+                  :rows="2"
+                  maxlength="500"
+                  show-word-limit
+                  placeholder="其他审级收费约定、风险费用支付约定细则等"
+                />
+              </el-form-item>
+            </el-col>
           </el-row>
         </div>
 
@@ -748,6 +1177,66 @@
         </el-table-column>
       </el-table>
     </el-dialog>
+
+    <!-- 利益冲突审查结果对话框 -->
+    <el-dialog v-model="conflictDialogVisible" title="利益冲突审查结果" width="900px">
+      <el-alert
+        v-if="conflictCheckResult && conflictCheckResult.hasConflict"
+        title="发现利益冲突！"
+        type="error"
+        :closable="false"
+        style="margin-bottom: 20px"
+      >
+        <template #default>
+          <p>建议：{{ conflictCheckResult.recommendation === 'APPLY_FOR_WAIVER' ? '申请利益冲突豁免' : '修改当事人信息' }}</p>
+        </template>
+      </el-alert>
+
+      <el-alert
+        v-else
+        title="未发现利益冲突"
+        type="success"
+        :closable="false"
+        style="margin-bottom: 20px"
+      />
+
+      <el-table
+        v-if="conflictCheckResult && conflictCheckResult.conflicts"
+        :data="conflictCheckResult.conflicts"
+        border
+      >
+        <el-table-column prop="type" label="冲突类型" width="150">
+          <template #default="{ row }">
+            <el-tag v-if="row.type === 'CLIENT_NAME'" type="danger">客户名称冲突</el-tag>
+            <el-tag v-else-if="row.type === 'PARTY_CONFLICT'" type="danger">当事人冲突</el-tag>
+            <el-tag v-else-if="row.type === 'HIGH_SIMILARITY'" type="warning">高度相似</el-tag>
+            <el-tag v-else type="info">{{ row.type }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="description" label="冲突描述" />
+        <el-table-column prop="relatedName" label="关联案件/客户" width="200" />
+        <el-table-column prop="severity" label="严重程度" width="100">
+          <template #default="{ row }">
+            <el-tag v-if="row.severity === 'HIGH'" type="danger">高</el-tag>
+            <el-tag v-else-if="row.severity === 'MEDIUM'" type="warning">中</el-tag>
+            <el-tag v-else-if="row.severity === 'LOW'" type="info">低</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="conflictDialogVisible = false">关闭</el-button>
+          <el-button
+            v-if="conflictCheckResult && conflictCheckResult.hasConflict"
+            type="warning"
+            @click="handleApplyForWaiver"
+          >
+            申请豁免
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -756,11 +1245,11 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Plus, MagicStick, DocumentCopy, Delete, UploadFilled
+  Plus, MagicStick, DocumentCopy, Delete, UploadFilled, Warning
 } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import AIDocumentFill from '@/components/AIDocumentFill.vue'
-import { createCase, updateCase, checkDuplicate, getCaseDetail } from '@/api/case'
+import { createCase, updateCase, checkDuplicate, getCaseDetail, comprehensiveConflictCheck } from '@/api/case'
 import { searchClients } from '@/api/client'
 import { useSubmitForm } from '@/composables/useSubmitForm'
 
@@ -771,9 +1260,90 @@ const aiFillDialogVisible = ref(false)
 const duplicateDialogVisible = ref(false)
 const duplicateCases = ref([])
 
+// ==================== 新增响应式变量（对标行政管理要求）====================
+const conflictDialogVisible = ref(false)
+const conflictCheckResult = ref(null)
+
 // 判断是否为编辑模式
 const isEditMode = computed(() => !!route.params.id)
 const caseId = computed(() => route.params.id)
+
+// ==================== 新增computed属性（对标行政管理要求）====================
+
+// 判断是否为诉讼类案件（需要开庭日期、法院案号）
+const isLitigationCase = computed(() => {
+  return ['CIVIL', 'COMMERCIAL', 'ARBITRATION', 'CRIMINAL', 'ADMINISTRATIVE'].includes(formData.caseType)
+})
+
+// 判断是否为顾问类案件（需要合同服务时间）
+const isAdvisoryCase = computed(() => {
+  return formData.caseType === 'ADVISORY' || formData.caseType === 'NON_LITIGATION'
+})
+
+// 计算分配比例总和
+const percentageSum = computed(() => {
+  const sourcePerson = formData.sourcePersonPercentage || 0
+  const department = formData.departmentPercentage || 0
+  const firm = formData.firmPercentage || 0
+  const sum = sourcePerson + department + firm
+  return sum === 0 ? null : Math.round(sum * 100) / 100 // 保留两位小数
+})
+
+// 业务类型选项（根据案件类型动态变化）
+const businessTypeOptions = computed(() => {
+  const typeMap = {
+    CIVIL: [
+      { label: '婚姻家庭', value: '婚姻家庭' },
+      { label: '公司', value: '公司' },
+      { label: '金融', value: '金融' },
+      { label: '证券', value: '证券' },
+      { label: '保险', value: '保险' },
+      { label: '海事海商', value: '海事海商' },
+      { label: '建设工程', value: '建设工程' },
+      { label: '劳动', value: '劳动' },
+      { label: '知识产权', value: '知识产权' }
+    ],
+    CRIMINAL: [
+      { label: '一般代理', value: '一般代理' },
+      { label: '当事人自行委托', value: '当事人自行委托' },
+      { label: '法律援助', value: '法律援助' },
+      { label: '法定通知辩护', value: '法定通知辩护' },
+      { label: '扩大通知辩护', value: '扩大通知辩护' },
+      { label: '刑事附带民事诉讼', value: '刑事附带民事诉讼' }
+    ],
+    ADMINISTRATIVE: [
+      { label: '一般代理/应诉', value: '一般代理/应诉' },
+      { label: '行政申诉', value: '行政申诉' }
+    ],
+    NON_LITIGATION: [
+      { label: '公司', value: '公司' },
+      { label: '金融', value: '金融' },
+      { label: '证券', value: '证券' },
+      { label: '保险', value: '保险' },
+      { label: '反垄断', value: '反垄断' },
+      { label: '建设工程与房地产', value: '建设工程与房地产' },
+      { label: '劳动', value: '劳动' },
+      { label: '知识产权', value: '知识产权' },
+      { label: '税法', value: '税法' }
+    ],
+    ADVISORY: [
+      { label: '常年法律顾问', value: '常年法律顾问' },
+      { label: '专项法律顾问', value: '专项法律顾问' }
+    ]
+  }
+  return typeMap[formData.caseType] || []
+})
+
+// 案件类型变化处理
+const handleCaseTypeChange = () => {
+  // 清空业务类型
+  formData.businessType = ''
+  // 清空犯罪嫌疑人（如果不是刑事案件）
+  if (formData.caseType !== 'CRIMINAL') {
+    formData.criminalSuspect = ''
+  }
+}
+
 
 // 转换formData为后端DTO格式
 const transformToRequest = () => {
@@ -851,6 +1421,18 @@ const transformToRequest = () => {
     feeMethod: feeMethod,
     feeDescription: formData.feeSummary || null,
     feeNotes: formData.feeRemark || null,
+    npaSubtype: formData.npaSubtype || null,
+    entrustingBankName: formData.entrustingBankName || null,
+    assetBatchNo: formData.assetBatchNo || null,
+    transferAgreementNo: formData.transferAgreementNo || null,
+    loanContractNo: formData.loanContractNo || null,
+    principalBalance: formData.principalBalance || null,
+    interestBalance: formData.interestBalance || null,
+    guaranteeType: formData.guaranteeType || null,
+    collateralStatus: formData.collateralStatus || null,
+    preservationStatus: formData.preservationStatus || null,
+    executionRecoveryAmount: formData.executionRecoveryAmount || null,
+    terminationStatus: formData.terminationStatus || null,
 
     // B. 当事人
     parties: parties,
@@ -860,7 +1442,48 @@ const transformToRequest = () => {
 
     // E. 关联信息
     clientIds: formData.relatedClients?.map(c => c.id || c) || [],
-    relatedCaseIds: formData.relatedCases?.map(c => c.id || c) || []
+    relatedCaseIds: formData.relatedCases?.map(c => c.id || c) || [],
+
+    // ==================== 新增字段（对标行政管理要求）====================
+    acceptanceDate: formData.acceptanceDate || null,
+    courtCaseNumber: formData.courtCaseNumber || null,
+    hearingDate: formData.hearingDate || null,
+    contractStartDate: formData.contractStartDate || null,
+    contractEndDate: formData.contractEndDate || null,
+    representationType: formData.representationType || null,
+    sourcePerson: Array.isArray(formData.sourcePerson) && formData.sourcePerson.length > 0
+      ? JSON.stringify(formData.sourcePerson)
+      : null,
+    sourcePersonPercentage: formData.sourcePersonPercentage || null,
+    departmentPercentage: formData.departmentPercentage || null,
+    firmPercentage: formData.firmPercentage || null,
+    conflictCheckStatus: formData.conflictCheckStatus || 'PENDING',
+    conflictWaiverApprovalId: formData.conflictWaiverApprovalId || null,
+
+    // 新增字段（对标系统问题.xlsx）
+    businessType: formData.businessType || null,
+    criminalSuspect: formData.criminalSuspect || null,
+    disputedAmount: formData.disputedAmount || null,
+    hostDepartment: Array.isArray(formData.hostDepartment) && formData.hostDepartment.length > 0
+      ? JSON.stringify(formData.hostDepartment)
+      : null,
+    coDepartments: Array.isArray(formData.coDepartments) && formData.coDepartments.length > 0
+      ? JSON.stringify(formData.coDepartments)
+      : null,
+    remark: formData.remark || null,
+
+    // 新增字段（对标案件登记及系统立结案流程）
+    otherClients: Array.isArray(formData.otherClients) && formData.otherClients.length > 0
+      ? JSON.stringify(formData.otherClients)
+      : null,
+    procedureLevels: Array.isArray(formData.procedureLevels) && formData.procedureLevels.length > 0
+      ? JSON.stringify(formData.procedureLevels)
+      : null,
+    isLegalAid: formData.isLegalAid || false,
+    fixedFee: formData.fixedFee || null,
+    riskRatio: formData.riskRatio || null,
+    riskFee: formData.riskFee || null,
+    feeRemark: formData.feeRemarkDetail || null
   }
 }
 
@@ -935,6 +1558,13 @@ const handleFiling = async () => {
       return
     }
 
+    // 验证分配比例总和必须为100%
+    const sum = percentageSum.value
+    if (sum !== null && sum !== 100) {
+      ElMessage.error(`分配比例总和必须为100%，当前为${sum}%，请检查A3.分配情况`)
+      return
+    }
+
     // 确认立案
     await ElMessageBox.confirm(
       '确认立案后将正式创建案件，案件状态将变为"审理中"，是否继续？',
@@ -997,6 +1627,18 @@ const formData = reactive({
   ownerId: '',
   coOwners: [],
   assistants: [],
+  npaSubtype: '',
+  entrustingBankName: '',
+  assetBatchNo: '',
+  transferAgreementNo: '',
+  loanContractNo: '',
+  principalBalance: null,
+  interestBalance: null,
+  guaranteeType: '',
+  collateralStatus: '',
+  preservationStatus: '',
+  executionRecoveryAmount: null,
+  terminationStatus: '',
 
   // B. 当事人
   parties: [],
@@ -1022,7 +1664,61 @@ const formData = reactive({
   closeStatus: '',
   closeDate: '',
   archiveDate: '',
-  archiveLocation: ''
+  archiveLocation: '',
+
+  // ==================== 新增字段（对标行政管理要求）====================
+  // 收案日期
+  acceptanceDate: '',
+  // 法院案号
+  courtCaseNumber: '',
+  // 开庭日期
+  hearingDate: '',
+  // 合同服务开始时间（顾问类）
+  contractStartDate: '',
+  // 合同服务结束时间（顾问类）
+  contractEndDate: '',
+  // 代理类型（刑事：原告/被告）
+  representationType: '',
+  // 案源人（支持多人，JSON数组）
+  sourcePerson: [],
+  // 案源人分配比例（%）
+  sourcePersonPercentage: null,
+  // 承办部门分配比例（%）
+  departmentPercentage: null,
+  // 律所提留比例（%）
+  firmPercentage: null,
+  // 利益冲突审查状态
+  conflictCheckStatus: 'PENDING',
+  // 利益冲突豁免审批ID
+  conflictWaiverApprovalId: null,
+
+  // ==================== 新增字段（对标系统问题.xlsx）====================
+  // 业务类型（根据案件类型变化）
+  businessType: '',
+  // 犯罪嫌疑人（刑事案件专用）
+  criminalSuspect: '',
+  // 涉案标的（单位：万元）
+  disputedAmount: null,
+  // 主办部门（支持多部门，JSON数组）
+  hostDepartment: [],
+  // 协办部门（支持多部门，JSON数组）
+  coDepartments: [],
+
+  // ==================== 新增字段（对标案件登记及系统立结案流程）====================
+  // 其他委托人（可多选，JSON数组）
+  otherClients: [],
+  // 审级（可多选，JSON数组）
+  procedureLevels: [],
+  // 是否法律援助案件
+  isLegalAid: false,
+  // 固定费用金额
+  fixedFee: null,
+  // 风险比例（%）
+  riskRatio: null,
+  // 风险费用金额
+  riskFee: null,
+  // 收费方式详细说明
+  feeRemarkDetail: ''
 })
 
 // 表单验证规则
@@ -1042,7 +1738,79 @@ const formRules = {
       trigger: 'change'
     }
   ],
-  lawyerFee: [{ required: true, message: '请输入代理费', trigger: 'blur' }]
+  lawyerFee: [{ required: true, message: '请输入代理费', trigger: 'blur' }],
+  // 新增字段验证（对标行政管理要求）
+  acceptanceDate: [{ required: true, message: '请选择收案日期', trigger: 'change' }],
+  courtCaseNumber: [
+    {
+      validator: (rule, value, callback) => {
+        // 诉讼类案件必填
+        const litigationTypes = ['CIVIL', 'COMMERCIAL', 'ARBITRATION', 'CRIMINAL', 'ADMINISTRATIVE']
+        if (litigationTypes.includes(formData.caseType) && !value) {
+          callback(new Error('诉讼类案件必须填写法院案号'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur'
+    }
+  ],
+  hearingDate: [
+    {
+      validator: (rule, value, callback) => {
+        // 诉讼类案件必填
+        const litigationTypes = ['CIVIL', 'COMMERCIAL', 'ARBITRATION', 'CRIMINAL', 'ADMINISTRATIVE']
+        if (litigationTypes.includes(formData.caseType) && !value) {
+          callback(new Error('诉讼类案件必须选择开庭日期'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'change'
+    }
+  ],
+  contractStartDate: [
+    {
+      validator: (rule, value, callback) => {
+        // 顾问类案件必填
+        if (formData.caseType === 'ADVISORY' && !value) {
+          callback(new Error('顾问类案件必须选择合同开始日期'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'change'
+    }
+  ],
+  contractEndDate: [
+    {
+      validator: (rule, value, callback) => {
+        // 顾问类案件必填
+        if (formData.caseType === 'ADVISORY' && !value) {
+          callback(new Error('顾问类案件必须选择合同结束日期'))
+        } else if (value && formData.contractStartDate && value < formData.contractStartDate) {
+          callback(new Error('结束日期不能早于开始日期'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'change'
+    }
+  ],
+  representationType: [
+    {
+      validator: (rule, value, callback) => {
+        // 刑事案件必填
+        if (formData.caseType === 'CRIMINAL' && !value) {
+          callback(new Error('刑事案件必须选择代理类型'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'change'
+    }
+  ],
+  sourcePerson: [{ required: true, message: '请输入案源人', trigger: 'blur' }]
 }
 
 // 预置数据
@@ -1254,6 +2022,77 @@ const handleDeleteReceivable = (index) => {
   formData.receivables.splice(index, 1)
 }
 
+// ==================== 新增方法（对标行政管理要求）====================
+
+// 验证分配比例总和
+const validatePercentageSum = () => {
+  const sum = percentageSum.value
+  if (sum !== null && sum !== 100) {
+    ElMessage.warning(`分配比例总和必须为100%，当前为${sum}%`)
+  }
+  return sum === 100
+}
+
+// 利益冲突检查
+const handleConflictCheck = async () => {
+  if (!formData.parties || formData.parties.length === 0) {
+    ElMessage.warning('请先添加当事人')
+    return
+  }
+
+  // 验证当事人基本信息
+  for (let i = 0; i < formData.parties.length; i++) {
+    const party = formData.parties[i]
+    if (!party.name || party.name.trim() === '') {
+      ElMessage.warning(`第${i + 1}个当事人：请输入姓名或单位名称`)
+      return
+    }
+  }
+
+  try {
+    // 调用利益冲突检查API
+    const response = await comprehensiveConflictCheck(formData.parties)
+    if (response.success || response.code === 200) {
+      conflictCheckResult.value = response.data
+
+      if (response.data.hasConflict) {
+        // 有冲突，显示对话框
+        conflictDialogVisible.value = true
+        // 更新冲突状态
+        formData.conflictCheckStatus = 'CONFLICT'
+      } else {
+        // 无冲突
+        ElMessage.success('利益冲突审查通过')
+        formData.conflictCheckStatus = 'PASSED'
+      }
+    }
+  } catch (error) {
+    console.error('利益冲突检查失败:', error)
+    ElMessage.error('利益冲突检查失败：' + (error.message || '未知错误'))
+  }
+}
+
+// 申请利益冲突豁免
+const handleApplyForWaiver = () => {
+  ElMessageBox.confirm(
+    '申请利益冲突豁免需要经过主任审批，是否继续？',
+    '申请豁免',
+    {
+      confirmButtonText: '继续',
+      cancelButtonText: '取消',
+      type: 'warning'
+    }
+  ).then(() => {
+    ElMessage.success('豁免申请已提交，请等待审批')
+    conflictDialogVisible.value = false
+    // 这里应该调用创建审批的API
+    formData.conflictCheckStatus = 'WAIVER_PENDING'
+  }).catch(() => {
+    // 用户取消
+  })
+}
+
+
 // 保存草稿 - 真正保存到后端数据库
 const handleSaveDraft = async () => {
   try {
@@ -1329,6 +2168,13 @@ const handleSubmitApproval = async () => {
       return
     }
 
+    // 验证分配比例总和必须为100%
+    const sum = percentageSum.value
+    if (sum !== null && sum !== 100) {
+      ElMessage.error(`分配比例总和必须为100%，当前为${sum}%，请检查A3.分配情况`)
+      return
+    }
+
     const requestData = transformToRequest()
 
     // 提交案件
@@ -1384,6 +2230,18 @@ onMounted(async () => {
       formData.filingDate = caseData.filingDate || null
       formData.deadlineDate = caseData.deadlineDate || null
       formData.summary = caseData.summary || ''
+      formData.npaSubtype = caseData.npaSubtype || ''
+      formData.entrustingBankName = caseData.entrustingBankName || ''
+      formData.assetBatchNo = caseData.assetBatchNo || ''
+      formData.transferAgreementNo = caseData.transferAgreementNo || ''
+      formData.loanContractNo = caseData.loanContractNo || ''
+      formData.principalBalance = caseData.principalBalance || null
+      formData.interestBalance = caseData.interestBalance || null
+      formData.guaranteeType = caseData.guaranteeType || ''
+      formData.collateralStatus = caseData.collateralStatus || ''
+      formData.preservationStatus = caseData.preservationStatus || ''
+      formData.executionRecoveryAmount = caseData.executionRecoveryAmount || null
+      formData.terminationStatus = caseData.terminationStatus || ''
 
       // 当事人数据转换
       if (caseData.parties && caseData.parties.length > 0) {

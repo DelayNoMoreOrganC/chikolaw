@@ -1,0 +1,27 @@
+# 债权精算工具依赖清单
+# 安装: pip install -r requirements.txt
+
+# Web界面
+streamlit>=1.31.0
+
+# 数据处理
+pandas>=2.1.0
+numpy>=1.24.0
+python-dateutil>=2.8.0
+openpyxl>=3.1.0
+xlrd>=2.0.1   # 支持旧版 .xls 格式
+
+# PDF/文档处理
+PyMuPDF>=1.23.0
+pdfplumber>=0.10.0
+Pillow>=10.0.0
+
+# 配置
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# Ollama AI解析（可选 - 功能不可用时自动降级）
+ollama>=0.1.0
+
+# 打包工具
+pyinstaller>=6.0.0

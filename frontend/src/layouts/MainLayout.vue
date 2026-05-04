@@ -21,6 +21,7 @@
         :default-active="activeMenu"
         :collapse="isCollapse"
         :unique-opened="true"
+        :default-openeds="defaultOpenedMenus"
         router
         class="sidebar-menu"
         @select="closeMobileSidebar"
@@ -208,7 +209,30 @@ const activeMenu = computed(() => {
   if (path.startsWith('/case/') && path.includes('/tab')) {
     return '/case/list'
   }
+  // 案件相关页面保持高亮
+  if (path.startsWith('/case/')) {
+    return path
+  }
   return path
+})
+
+// 默认展开的菜单
+const defaultOpenedMenus = computed(() => {
+  const { path } = route
+  const openedMenus = []
+  // 如果在案件相关页面，展开案件菜单
+  if (path.startsWith('/case/')) {
+    openedMenus.push('/case')
+  }
+  // 如果在客户相关页面，展开客户菜单
+  if (path.startsWith('/client/')) {
+    openedMenus.push('/client')
+  }
+  // 如果在知识库页面，展开知识库菜单
+  if (path.startsWith('/knowledge/')) {
+    openedMenus.push('/knowledge')
+  }
+  return openedMenus
 })
 
 // 菜单路由
@@ -401,6 +425,21 @@ onBeforeUnmount(() => {
 
       :deep(.el-menu-item),
       :deep(.el-sub-menu__title) {
+        color: rgba(255, 255, 255, 0.65);
+
+        &:hover {
+          background-color: rgba(255, 255, 255, 0.08);
+          color: #fff;
+        }
+
+        &.is-active {
+          background-color: #1890ff;
+          color: #fff;
+        }
+      }
+
+      // 确保子菜单项正确显示激活状态
+      :deep(.el-sub-menu .el-menu-item) {
         color: rgba(255, 255, 255, 0.65);
 
         &:hover {

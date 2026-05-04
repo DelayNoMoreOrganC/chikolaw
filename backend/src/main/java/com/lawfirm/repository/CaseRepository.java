@@ -140,4 +140,25 @@ public interface CaseRepository extends JpaRepository<Case, Long>, JpaSpecificat
      */
     @Query("SELECT DISTINCT c.court FROM Case c WHERE c.court IS NOT NULL AND c.court != '' AND c.deleted = false AND c.court LIKE %:keyword% ORDER BY c.court")
     List<String> findCourtsByKeyword(@Param("keyword") String keyword);
+
+    // ==================== 利益冲突检查相关查询 ====================
+
+    /**
+     * 根据客户名称查找案号列表（用于利益冲突检查）
+     * 查找该客户名称作为委托人的所有案件
+     */
+    @Query("SELECT DISTINCT c.caseNumber FROM Case c " +
+            "JOIN Client cl ON cl.clientName = :clientName " +
+            "WHERE c.clientId = cl.id AND c.deleted = false")
+    List<String> findCaseNumbersByClientName(@Param("clientName") String clientName);
+
+    /**
+     * 根据对方当事人名称查找案号列表（用于利益冲突检查）
+     * 查找该名称作为对方当事人的所有案件
+     * 注意：由于当前系统中Case和Party可能没有直接的JPA关系，
+     * 这里使用简化的实现，实际可能需要调整
+     */
+    @Query("SELECT DISTINCT c.caseNumber FROM Case c " +
+            "WHERE c.caseName LIKE CONCAT('%', :partyName, '%') AND c.deleted = false")
+    List<String> findCaseNumbersByOpposingPartyName(@Param("partyName") String partyName);
 }

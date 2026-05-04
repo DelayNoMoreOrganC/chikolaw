@@ -66,7 +66,6 @@ public class KnowledgeArticle extends LogicalDeleteEntity {
      * 内容（富文本）
      */
     @Lob
-    @Column(name = "content", columnDefinition = "TEXT")
     private String content;
 
     /**
@@ -102,7 +101,7 @@ public class KnowledgeArticle extends LogicalDeleteEntity {
     /**
      * 作者ID
      */
-    @Column(name = "author_id", nullable = false)
+    @Column(name = "author_id")
     private Long authorId;
 
     /**

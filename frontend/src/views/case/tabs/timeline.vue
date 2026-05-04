@@ -187,7 +187,14 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+
+// 监听案件数据变化，加载动态数据
+watch(() => props.caseData.id, (newId) => {
+  if (newId) {
+    fetchTimeline()
+  }
+}, { immediate: true })
 import { ElMessage } from 'element-plus'
 import { Promotion } from '@element-plus/icons-vue'
 import { getCaseTimeline, createTimelineComment, deleteTimelineComment } from '@/api/case'

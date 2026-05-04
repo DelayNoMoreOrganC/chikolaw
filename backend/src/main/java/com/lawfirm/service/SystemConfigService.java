@@ -104,6 +104,54 @@ public class SystemConfigService {
     }
 
     /**
+     * 获取前端系统设置页使用的聚合配置。
+     */
+    public Map<String, Object> getAllConfigGroups() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("system", getConfigsByCategory(CATEGORY_SYSTEM));
+        result.put("approval", getConfigsByCategory(CATEGORY_APPROVAL));
+        result.put("case", getConfigsByCategory(CATEGORY_CASE));
+        result.put("ai", getConfigsByCategory(CATEGORY_AI));
+        result.put("notification", getConfigsByCategory(CATEGORY_NOTIFICATION));
+        result.put("categories", getCategories());
+        return result;
+    }
+
+    /**
+     * 保存聚合配置，兼容 {system:{...}} 和 {configs:{...},category:"SYSTEM"} 两种格式。
+     */
+    @Transactional
+    public void saveConfigGroups(Map<String, Object> groups) {
+        if (groups == null || groups.isEmpty()) {
+            return;
+        }
+
+        Object configs = groups.get("configs");
+        Object category = groups.get("category");
+        if (configs instanceof Map && category instanceof String) {
+            saveConfigGroup((String) category, (Map<?, ?>) configs);
+            return;
+        }
+
+        saveConfigGroup(CATEGORY_SYSTEM, groups.get("system"));
+        saveConfigGroup(CATEGORY_APPROVAL, groups.get("approval"));
+        saveConfigGroup(CATEGORY_CASE, groups.get("case"));
+        saveConfigGroup(CATEGORY_AI, groups.get("ai"));
+        saveConfigGroup(CATEGORY_NOTIFICATION, groups.get("notification"));
+    }
+
+    private void saveConfigGroup(String category, Object values) {
+        if (!(values instanceof Map)) {
+            return;
+        }
+        ((Map<?, ?>) values).forEach((key, value) -> {
+            if (key != null && value != null) {
+                saveConfig(String.valueOf(key), String.valueOf(value), "STRING", category, null);
+            }
+        });
+    }
+
+    /**
      * 根据分类获取配置
      */
     public Map<String, String> getConfigsByCategory(String category) {

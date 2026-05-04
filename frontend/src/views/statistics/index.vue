@@ -114,24 +114,34 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Download, CaretTop, CaretBottom, Document, CircleCheck, Coin } from '@element-plus/icons-vue'
+import { Download, CaretTop, CaretBottom, Document, CircleCheck, Coin, Files } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import * as echarts from 'echarts'
-import { getStatsCards, getCaseTrend, getCaseTypeDistribution } from '@/api/statistics'
+import {
+  getStatsCards,
+  getCaseTrend,
+  getCaseTypeDistribution,
+  getFeeStatistics,
+  getLawyerPerformance,
+  getWinRate,
+  getCollectionRate,
+  exportExcel,
+  exportPdf
+} from '@/api/statistics'
 
 const dateRange = ref([])
 const caseTrendPeriod = ref('month')
 
 // Emoji到Element Plus图标的映射
 const emojiToIcon = {
-  '⚖️': Scale,
+  '⚖️': Files,
   '📋': Document,
   '✅': CircleCheck,
   '💰': Coin
 }
 
 const getIcon = (emoji) => {
-  return emojiToIcon[emoji] || Scale
+  return emojiToIcon[emoji] || Files
 }
 const caseTypePie = ref(true)
 const feeType = ref('income')
@@ -151,10 +161,20 @@ const collectionRateChartRef = ref(null)
 // 统计卡片数据
 const statsCards = ref([])
 
+const getDateParams = () => {
+  if (dateRange.value && dateRange.value.length === 2) {
+    return {
+      startDate: dateRange.value[0],
+      endDate: dateRange.value[1]
+    }
+  }
+  return {}
+}
+
 // 获取统计卡片数据
 const fetchStatsCards = async () => {
   try {
-    const res = await getStatsCards({ page: 1, size: 10 })
+    const res = await getStatsCards(getDateParams())
     if (res.success) {
       const data = res.data
       statsCards.value = [
@@ -162,7 +182,7 @@ const fetchStatsCards = async () => {
           key: 'totalCases',
           label: '案件总数',
           value: data.totalCases?.toString() || '0',
-          icon: Scale,
+          icon: Files,
           color: '#1890ff',
           trend: 'up',
           trendValue: data.totalCasesTrend || '0%',
@@ -219,17 +239,28 @@ const initCharts = () => {
 }
 
 // 更新所有图表
-const updateAllCharts = () => {
-  updateCaseTrendChart()
-  updateCaseTypeChart()
-  updateFeeChart()
-  updatePerformanceChart()
-  updateWinRateChart()
-  updateCollectionRateChart()
+const updateAllCharts = async () => {
+  try {
+    await Promise.all([
+      updateCaseTrendChart(),
+      updateCaseTypeChart(),
+      updateFeeChart(),
+      updatePerformanceChart(),
+      updateWinRateChart(),
+      updateCollectionRateChart()
+    ])
+  } catch (error) {
+    console.error('更新统计图表失败:', error)
+  }
 }
 
 // 案件数量趋势图
-const updateCaseTrendChart = () => {
+const updateCaseTrendChart = async () => {
+  const res = await getCaseTrend({
+    ...getDateParams(),
+    period: caseTrendPeriod.value
+  })
+  const data = res.success ? res.data : {}
   const option = {
     tooltip: {
       trigger: 'axis'
@@ -239,7 +270,7 @@ const updateCaseTrendChart = () => {
     },
     xAxis: {
       type: 'category',
-      data: ['1月', '2月', '3月', '4月', '5月', '6月']
+      data: data.labels || []
     },
     yAxis: {
       type: 'value'
@@ -248,14 +279,14 @@ const updateCaseTrendChart = () => {
       {
         name: '新增案件',
         type: 'line',
-        data: [120, 132, 101, 134, 90, 230],
+        data: data.newCases || [],
         smooth: true,
         itemStyle: { color: '#1890ff' }
       },
       {
         name: '结案案件',
         type: 'line',
-        data: [220, 182, 191, 234, 290, 330],
+        data: data.closedCases || [],
         smooth: true,
         itemStyle: { color: '#52c41a' }
       }
@@ -265,15 +296,9 @@ const updateCaseTrendChart = () => {
 }
 
 // 案件类型分布图
-const updateCaseTypeChart = () => {
-  const data = [
-    { value: 335, name: '民事' },
-    { value: 310, name: '商事' },
-    { value: 234, name: '刑事' },
-    { value: 135, name: '行政' },
-    { value: 148, name: '仲裁' },
-    { value: 72, name: '非诉' }
-  ]
+const updateCaseTypeChart = async () => {
+  const res = await getCaseTypeDistribution(getDateParams())
+  const data = res.success ? (res.data?.data || []) : []
 
   const option = caseTypePie.value ? {
     tooltip: {
@@ -332,7 +357,12 @@ const updateCaseTypeChart = () => {
 }
 
 // 收费统计图
-const updateFeeChart = () => {
+const updateFeeChart = async () => {
+  const res = await getFeeStatistics({
+    ...getDateParams(),
+    type: feeType.value
+  })
+  const data = res.success ? res.data : {}
   const option = {
     tooltip: {
       trigger: 'axis'
@@ -342,7 +372,7 @@ const updateFeeChart = () => {
     },
     xAxis: {
       type: 'category',
-      data: ['1月', '2月', '3月', '4月', '5月', '6月']
+      data: data.labels || []
     },
     yAxis: {
       type: 'value',
@@ -355,14 +385,14 @@ const updateFeeChart = () => {
         name: '已收',
         type: 'bar',
         stack: 'total',
-        data: [320, 302, 301, 334, 390, 330],
+        data: data.income || [],
         itemStyle: { color: '#67c23a' }
       },
       {
         name: '待收',
         type: 'bar',
         stack: 'total',
-        data: [120, 132, 101, 134, 90, 230],
+        data: data.pending || [],
         itemStyle: { color: '#e6a23c' }
       }
     ]
@@ -371,17 +401,12 @@ const updateFeeChart = () => {
 }
 
 // 律师业绩排名图
-const updatePerformanceChart = () => {
-  const data = [
-    { name: '张律师', value: 156 },
-    { name: '李律师', value: 142 },
-    { name: '王律师', value: 128 },
-    { name: '赵律师', value: 98 },
-    { name: '钱律师', value: 87 },
-    { name: '孙律师', value: 76 },
-    { name: '周律师', value: 65 },
-    { name: '吴律师', value: 54 }
-  ]
+const updatePerformanceChart = async () => {
+  const res = await getLawyerPerformance({
+    ...getDateParams(),
+    metric: performanceMetric.value
+  })
+  const data = res.success ? (res.data?.data || []) : []
 
   const option = {
     tooltip: {
@@ -407,7 +432,7 @@ const updatePerformanceChart = () => {
       {
         name: '案件数',
         type: 'bar',
-        data: data.map(item => item.value),
+        data: data.map(item => Number.parseFloat(String(item.value).replace('%', '')) || 0),
         itemStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
             { offset: 0, color: '#1890ff' },
@@ -425,7 +450,9 @@ const updatePerformanceChart = () => {
 }
 
 // 案件胜诉率图
-const updateWinRateChart = () => {
+const updateWinRateChart = async () => {
+  const res = await getWinRate(getDateParams())
+  const data = res.success ? (res.data?.data || []) : []
   const option = {
     tooltip: {
       trigger: 'item',
@@ -445,12 +472,7 @@ const updateWinRateChart = () => {
           show: true,
           formatter: '{b}: {d}%'
         },
-        data: [
-          { value: 65, name: '胜诉', itemStyle: { color: '#52c41a' } },
-          { value: 20, name: '部分胜诉', itemStyle: { color: '#1890ff' } },
-          { value: 10, name: '败诉', itemStyle: { color: '#f56c6c' } },
-          { value: 5, name: '其他', itemStyle: { color: '#909399' } }
-        ]
+        data
       }
     ]
   }
@@ -458,7 +480,9 @@ const updateWinRateChart = () => {
 }
 
 // 收款率统计图
-const updateCollectionRateChart = () => {
+const updateCollectionRateChart = async () => {
+  const res = await getCollectionRate(getDateParams())
+  const data = res.success ? res.data : {}
   const option = {
     tooltip: {
       trigger: 'axis'
@@ -468,7 +492,7 @@ const updateCollectionRateChart = () => {
     },
     xAxis: {
       type: 'category',
-      data: ['1月', '2月', '3月', '4月', '5月', '6月']
+      data: data.labels || []
     },
     yAxis: [
       {
@@ -489,20 +513,20 @@ const updateCollectionRateChart = () => {
       {
         name: '应收',
         type: 'bar',
-        data: [400, 432, 401, 434, 490, 560],
+        data: data.receivable || [],
         itemStyle: { color: '#909399' }
       },
       {
         name: '实收',
         type: 'bar',
-        data: [320, 302, 301, 334, 390, 430],
+        data: data.received || [],
         itemStyle: { color: '#67c23a' }
       },
       {
         name: '收款率',
         type: 'line',
         yAxisIndex: 1,
-        data: [80, 70, 75, 77, 80, 77],
+        data: data.collectionRate || [],
         itemStyle: { color: '#faad14' }
       }
     ]
@@ -519,19 +543,19 @@ const handleDateChange = (dates) => {
   }
 }
 
+const loadStatisticsData = async () => {
+  await fetchStatsCards()
+  await updateAllCharts()
+}
+
 // 导出Excel
 const handleExportExcel = async () => {
   try {
     ElMessage.info('正在生成Excel报表...')
 
-    const response = await request({
-      url: '/statistics/export/excel',
-      method: 'post',
-      data: {
+    const response = await exportExcel({
         startDate: dateRange.value?.[0],
         endDate: dateRange.value?.[1]
-      },
-      responseType: 'blob'
     })
 
     // 创建下载链接
@@ -556,14 +580,9 @@ const handleExportPDF = async () => {
   try {
     ElMessage.info('正在生成PDF报表...')
 
-    const response = await request({
-      url: '/statistics/export/pdf',
-      method: 'post',
-      data: {
+    const response = await exportPdf({
         startDate: dateRange.value?.[0],
         endDate: dateRange.value?.[1]
-      },
-      responseType: 'blob'
     })
 
     // 创建下载链接

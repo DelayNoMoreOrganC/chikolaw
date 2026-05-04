@@ -82,4 +82,16 @@ public interface ClientRepository extends JpaRepository<Client, Long> {
      */
     @Query("SELECT c FROM Client c WHERE c.ownerId = :ownerId AND c.deleted = false")
     List<Client> findByOwnerIdAndDeletedFalse(@Param("ownerId") Long ownerId);
+
+    /**
+     * 根据名称模糊查询客户名称列表（用于利益冲突检查）
+     */
+    @Query("SELECT c.clientName FROM Client c WHERE c.clientName LIKE CONCAT('%', :name, '%') AND c.deleted = false")
+    List<String> findByNameContaining(@Param("name") String name);
+
+    /**
+     * 获取所有客户名称列表（用于利益冲突检查）
+     */
+    @Query("SELECT c.clientName FROM Client c WHERE c.deleted = false")
+    List<String> findAllNames();
 }

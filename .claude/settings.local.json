@@ -3,7 +3,21 @@
     "allow": [
       "Bash(gh auth:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(netstat:*)",
+      "Bash(cd:*)",
+      "Bash(curl:*)",
+      "Bash(taskkill:*)",
+      "Bash(tasklist:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(sleep:*)",
+      "Bash(tail:*)",
+      "Bash(cat EOF Checking all routes in router config: EOF grep -E path:.*name: D:/ZGAI/frontend/src/router/index.js)",
+      "Bash(node:*)",
+      "Bash(git add *)",
+      "Bash(mvn compile *)",
+      "Bash(xargs basename *)"
     ]
   }
 }

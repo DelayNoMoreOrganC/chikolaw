@@ -45,6 +45,99 @@ public class CaseDetailVO {
     private BigDecimal actualReceived;
     private String closeStatus;
     private String closeStatusDesc;
+    private String npaSubtype;
+    private String entrustingBankName;
+    private String assetBatchNo;
+    private String transferAgreementNo;
+    private String loanContractNo;
+    private BigDecimal principalBalance;
+    private BigDecimal interestBalance;
+    private String guaranteeType;
+    private String collateralStatus;
+    private String preservationStatus;
+    private BigDecimal executionRecoveryAmount;
+    private String terminationStatus;
+
+    /**
+     * 新增字段（对标行政管理要求）
+     */
+    private LocalDate acceptanceDate;
+    private String courtCaseNumber;
+    private LocalDate hearingDate;
+    private LocalDate contractStartDate;
+    private LocalDate contractEndDate;
+    private String representationType;
+    private String sourcePerson;
+    private BigDecimal sourcePersonPercentage;
+    private BigDecimal departmentPercentage;
+    private BigDecimal firmPercentage;
+    private String conflictCheckStatus;
+    private Long conflictWaiverApprovalId;
+
+    /**
+     * 业务类型（根据案件类型的细分）
+     */
+    private String businessType;
+
+    /**
+     * 犯罪嫌疑人（刑事案件专用）
+     */
+    private String criminalSuspect;
+
+    /**
+     * 涉案标的（单位：万元）
+     */
+    private BigDecimal disputedAmount;
+
+    /**
+     * 主办部门（根据主办律师自动关联）
+     */
+    private String hostDepartment;
+
+    /**
+     * 协办部门（根据协办律师自动关联）
+     */
+    private String coDepartments;
+
+    /**
+     * 备注（收费方式备注等）
+     */
+    private String remark;
+
+    /**
+     * 其他委托人（可多选）
+     */
+    private String otherClients;
+
+    /**
+     * 审级（可多选，JSON数组格式）
+     */
+    private String procedureLevels;
+
+    /**
+     * 是否法律援助案件
+     */
+    private Boolean isLegalAid;
+
+    /**
+     * 固定费用金额
+     */
+    private java.math.BigDecimal fixedFee;
+
+    /**
+     * 风险比例（%）
+     */
+    private java.math.BigDecimal riskRatio;
+
+    /**
+     * 风险费用金额
+     */
+    private java.math.BigDecimal riskFee;
+
+    /**
+     * 收费方式详细说明
+     */
+    private String feeRemark;
 
     /**
      * 团队信息
@@ -73,6 +166,11 @@ public class CaseDetailVO {
      * 关联案件列表
      */
     private List<RelatedCaseVO> relatedCases;
+
+    /**
+     * 办案策略列表
+     */
+    private String strategies;
 
     /**
      * 阶段进度

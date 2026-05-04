@@ -78,7 +78,7 @@ public class SecurityUtils {
     public boolean isAdmin() {
         Set<String> roles = getCurrentUserRoles();
         // 兼容 roleCode 和 roleName
-        return roles.contains("ADMIN") || roles.contains("MANAGER")
+        return roles.contains("ADMIN") || roles.contains("MANAGER") || roles.contains("DIRECTOR")
             || roles.contains("管理员") || roles.contains("主任");
     }
 

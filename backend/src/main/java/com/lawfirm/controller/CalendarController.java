@@ -178,9 +178,10 @@ public class CalendarController {
     public Result<com.lawfirm.util.PageResult<CalendarDTO>> getCalendars(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
-            @RequestParam Long userId) {
+            @RequestParam(required = false) Long userId) {
         try {
-            com.lawfirm.util.PageResult<CalendarDTO> result = calendarService.getCalendars(page, size, userId);
+            Long queryUserId = userId != null ? userId : securityUtils.getCurrentUserId();
+            com.lawfirm.util.PageResult<CalendarDTO> result = calendarService.getCalendars(page, size, queryUserId);
             return Result.success(result);
         } catch (Exception e) {
             log.error("分页查询日程异常", e);

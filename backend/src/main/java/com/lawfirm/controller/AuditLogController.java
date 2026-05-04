@@ -33,7 +33,7 @@ public class AuditLogController {
      * GET /api/audit-logs?page=1&size=20&module=&operation=&userId=
      */
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DIRECTOR', 'MANAGER')")
     public Page<AuditLog> getAuditLogs(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -84,7 +84,7 @@ public class AuditLogController {
      * GET /api/audit-logs/{id}
      */
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DIRECTOR', 'MANAGER')")
     public Result<AuditLog> getAuditLogById(@PathVariable Long id) {
         return auditLogRepository.findById(id)
                 .map(Result::success)
@@ -96,7 +96,7 @@ public class AuditLogController {
      * GET /api/audit-logs/modules
      */
     @GetMapping("/modules")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DIRECTOR', 'MANAGER')")
     public List<String> getModules() {
         return auditLogRepository.findAll().stream()
                 .map(AuditLog::getModule)
@@ -110,7 +110,7 @@ public class AuditLogController {
      * GET /api/audit-logs/operations
      */
     @GetMapping("/operations")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DIRECTOR', 'MANAGER')")
     public List<String> getOperations() {
         return auditLogRepository.findAll().stream()
                 .map(AuditLog::getOperation)
@@ -124,7 +124,7 @@ public class AuditLogController {
      * GET /api/audit-logs/stats
      */
     @GetMapping("/stats")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'DIRECTOR', 'MANAGER')")
     public Object getAuditLogStats() {
         long totalLogs = auditLogRepository.count();
 

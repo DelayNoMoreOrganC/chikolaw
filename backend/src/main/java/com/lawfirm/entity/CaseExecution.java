@@ -65,6 +65,21 @@ public class CaseExecution extends LogicalDeleteEntity {
     @Column(name = "next_step", length = 200)
     private String nextStep;
 
+    @Column(name = "valuation_status", length = 100)
+    private String valuationStatus;
+
+    @Column(name = "auction_status", length = 100)
+    private String auctionStatus;
+
+    @Column(name = "distribution_status", length = 100)
+    private String distributionStatus;
+
+    @Column(name = "termination_status", length = 50)
+    private String terminationStatus;
+
+    @Column(name = "debt_calculation", precision = 15, scale = 2)
+    private BigDecimal debtCalculation;
+
     @Lob
     private String remarks;
 

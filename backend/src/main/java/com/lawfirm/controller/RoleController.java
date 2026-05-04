@@ -1,5 +1,6 @@
 package com.lawfirm.controller;
 
+import com.lawfirm.annotation.AuditLog;
 import com.lawfirm.dto.RoleCreateRequest;
 import com.lawfirm.dto.RoleDTO;
 import com.lawfirm.service.RoleService;
@@ -29,6 +30,7 @@ public class RoleController {
      * POST /api/role
      */
     @PostMapping
+    @AuditLog(value = "创建角色", operationType = "CREATE")
     public Result<RoleDTO> createRole(@Valid @RequestBody RoleCreateRequest request) {
         try {
             RoleDTO result = roleService.createRole(request);
@@ -44,6 +46,7 @@ public class RoleController {
      * PUT /api/role/{id}
      */
     @PutMapping("/{id}")
+    @AuditLog(value = "更新角色", operationType = "UPDATE")
     public Result<RoleDTO> updateRole(@PathVariable Long id,
                                      @Valid @RequestBody RoleCreateRequest request) {
         try {
@@ -60,6 +63,7 @@ public class RoleController {
      * DELETE /api/role/{id}
      */
     @DeleteMapping("/{id}")
+    @AuditLog(value = "删除角色", operationType = "DELETE")
     public Result<Void> deleteRole(@PathVariable Long id) {
         try {
             roleService.deleteRole(id);
@@ -107,6 +111,7 @@ public class RoleController {
      * PUT /api/role/{id}/permissions
      */
     @PutMapping("/{id}/permissions")
+    @AuditLog(value = "分配角色权限", operationType = "UPDATE")
     public Result<Void> assignPermissions(@PathVariable Long id,
                                          @RequestBody Map<String, List<Long>> params) {
         try {

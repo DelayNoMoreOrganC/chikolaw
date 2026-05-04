@@ -101,6 +101,14 @@ public class CaseListVO {
      */
     private BigDecimal attorneyFee;
 
+    private String npaSubtype;
+    private String entrustingBankName;
+    private String assetBatchNo;
+    private BigDecimal principalBalance;
+    private BigDecimal interestBalance;
+    private BigDecimal executionRecoveryAmount;
+    private String terminationStatus;
+
     /**
      * 当事人信息（原告 vs 被告）
      */
@@ -125,6 +133,11 @@ public class CaseListVO {
      * 更新时间
      */
     private LocalDate updatedAt;
+
+    /**
+     * 是否法律援助案件
+     */
+    private Boolean isLegalAid;
 
     /**
      * 是否可以编辑

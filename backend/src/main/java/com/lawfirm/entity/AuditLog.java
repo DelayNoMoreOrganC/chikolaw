@@ -34,6 +34,7 @@ public class AuditLog {
     @Column(length = 100)
     private String method;
 
+    @Lob
     private String params;
 
     @Column(length = 50)

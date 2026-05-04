@@ -1,5 +1,6 @@
 package com.lawfirm.controller;
 
+import com.lawfirm.annotation.AuditLog;
 import com.lawfirm.dto.DepartmentCreateRequest;
 import com.lawfirm.dto.DepartmentDTO;
 import com.lawfirm.service.DepartmentService;
@@ -29,6 +30,7 @@ public class DepartmentController {
      * POST /api/department
      */
     @PostMapping
+    @AuditLog(value = "创建部门", operationType = "CREATE")
     public Result<DepartmentDTO> createDepartment(@Valid @RequestBody DepartmentCreateRequest request) {
         try {
             DepartmentDTO result = departmentService.createDepartment(request);
@@ -44,6 +46,7 @@ public class DepartmentController {
      * PUT /api/department/{id}
      */
     @PutMapping("/{id}")
+    @AuditLog(value = "更新部门", operationType = "UPDATE")
     public Result<DepartmentDTO> updateDepartment(@PathVariable Long id,
                                                  @Valid @RequestBody DepartmentCreateRequest request) {
         try {
@@ -60,6 +63,7 @@ public class DepartmentController {
      * DELETE /api/department/{id}
      */
     @DeleteMapping("/{id}")
+    @AuditLog(value = "删除部门", operationType = "DELETE")
     public Result<Void> deleteDepartment(@PathVariable Long id) {
         try {
             departmentService.deleteDepartment(id);

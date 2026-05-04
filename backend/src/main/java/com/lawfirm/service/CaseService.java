@@ -62,13 +62,13 @@ public class CaseService {
             throw new InvalidParameterException("caseType", "案件类型不能为空");
         }
         if (request.getProcedure() == null) {
-            throw new InvalidParameterException("procedure", "案件程序不能为空");
+            request.setProcedure("FIRST_INSTANCE");
         }
         if (request.getLevel() == null) {
-            throw new InvalidParameterException("level", "案件等级不能为空");
+            request.setLevel("GENERAL");
         }
         if (request.getOwnerId() == null) {
-            throw new InvalidParameterException("ownerId", "主办律师不能为空");
+            request.setOwnerId(currentUserId);
         }
 
         // 查重检查
@@ -104,10 +104,43 @@ public class CaseService {
         caseEntity.setCommissionDate(request.getCommissionDate());
         caseEntity.setTags(request.getTags());
         caseEntity.setSummary(request.getSummary());
+        caseEntity.setStrategies(request.getStrategies());
         caseEntity.setLevel(request.getLevel());
         caseEntity.setAmount(request.getAmount());
         caseEntity.setAttorneyFee(request.getAttorneyFee());
         caseEntity.setFeeMethod(request.getFeeMethod());
+        applyNpaFields(caseEntity, request);
+
+        // ==================== 新增字段映射（对标行政管理要求）====================
+        caseEntity.setAcceptanceDate(request.getAcceptanceDate());
+        caseEntity.setCourtCaseNumber(request.getCourtCaseNumber());
+        caseEntity.setHearingDate(request.getHearingDate());
+        caseEntity.setContractStartDate(request.getContractStartDate());
+        caseEntity.setContractEndDate(request.getContractEndDate());
+        caseEntity.setRepresentationType(request.getRepresentationType());
+        caseEntity.setSourcePerson(request.getSourcePerson());
+        caseEntity.setSourcePersonPercentage(request.getSourcePersonPercentage());
+        caseEntity.setDepartmentPercentage(request.getDepartmentPercentage());
+        caseEntity.setFirmPercentage(request.getFirmPercentage());
+        caseEntity.setConflictCheckStatus(request.getConflictCheckStatus());
+        caseEntity.setConflictWaiverApprovalId(request.getConflictWaiverApprovalId());
+
+        // 新增字段映射（对标系统问题.xlsx）
+        caseEntity.setBusinessType(request.getBusinessType());
+        caseEntity.setCriminalSuspect(request.getCriminalSuspect());
+        caseEntity.setDisputedAmount(request.getDisputedAmount());
+        caseEntity.setHostDepartment(request.getHostDepartment());
+        caseEntity.setCoDepartments(request.getCoDepartments());
+        caseEntity.setRemark(request.getRemark());
+
+        // 新增字段映射（对标案件登记及系统立结案流程）
+        caseEntity.setOtherClients(request.getOtherClients());
+        caseEntity.setProcedureLevels(request.getProcedureLevels());
+        caseEntity.setIsLegalAid(request.getIsLegalAid() != null ? request.getIsLegalAid() : false);
+        caseEntity.setFixedFee(request.getFixedFee());
+        caseEntity.setRiskRatio(request.getRiskRatio());
+        caseEntity.setRiskFee(request.getRiskFee());
+        caseEntity.setFeeRemark(request.getFeeRemark());
 
         // 设置初始状态
         caseEntity.setStatus(CaseStatus.CONSULTATION.getCode());
@@ -215,6 +248,9 @@ public class CaseService {
         if (request.getSummary() != null) {
             caseEntity.setSummary(request.getSummary());
         }
+        if (request.getStrategies() != null) {
+            caseEntity.setStrategies(request.getStrategies());
+        }
         if (request.getLevel() != null) {
             caseEntity.setLevel(request.getLevel());
         }
@@ -227,6 +263,7 @@ public class CaseService {
         if (request.getFeeMethod() != null) {
             caseEntity.setFeeMethod(request.getFeeMethod());
         }
+        applyNpaFields(caseEntity, request);
         if (request.getWonAmount() != null) {
             caseEntity.setWonAmount(request.getWonAmount());
         }
@@ -557,39 +594,64 @@ public class CaseService {
 
     /**
      * 自动生成案件名称
+     * 规则：当事人与对方当事人+案由
+     * 支持多个当事人（用"、"连接）
+     * 示例：张三、李四 Vs 王五 买卖合同纠纷
      */
     public String autoGenerateName(List<PartyDTO> parties) {
         if (parties == null || parties.isEmpty()) {
             return "未命名案件";
         }
 
-        String plaintiff = parties.stream()
+        // 获取所有原告/申请人
+        List<String> plaintiffs = parties.stream()
                 .filter(p -> "PLAINTIFF".equals(p.getPartyRole()) || "APPLICANT".equals(p.getPartyRole()))
                 .map(PartyDTO::getName)
-                .findFirst()
-                .orElse("原告");
+                .filter(name -> name != null && !name.trim().isEmpty())
+                .collect(java.util.stream.Collectors.toList());
 
-        String defendant = parties.stream()
+        // 获取所有被告/被申请人
+        List<String> defendants = parties.stream()
                 .filter(p -> "DEFENDANT".equals(p.getPartyRole()) || "RESPONDENT".equals(p.getPartyRole()))
                 .map(PartyDTO::getName)
-                .findFirst()
-                .orElse("被告");
+                .filter(name -> name != null && !name.trim().isEmpty())
+                .collect(java.util.stream.Collectors.toList());
 
-        return plaintiff + " Vs " + defendant;
+        String plaintiffStr = plaintiffs.isEmpty() ? "原告" : String.join("、", plaintiffs);
+        String defendantStr = defendants.isEmpty() ? "被告" : String.join("、", defendants);
+
+        return plaintiffStr + " Vs " + defendantStr;
+    }
+
+    /**
+     * 自动生成案件名称（带案由）
+     * 规则：当事人与对方当事人+案由
+     * @param parties 当事人列表
+     * @param caseReason 案由
+     * @return 案件名称
+     */
+    public String autoGenerateNameWithReason(List<PartyDTO> parties, String caseReason) {
+        String baseName = autoGenerateName(parties);
+        if (caseReason != null && !caseReason.trim().isEmpty()) {
+            return baseName + " " + caseReason;
+        }
+        return baseName;
     }
 
     /**
      * 自动生成案件编号
+     * 格式：[年]粤至高[民/刑/行/非/顾]字第XXX号
+     * 示例：2025粤至高民字第0001号
      */
     public String autoGenerateNumber(String caseType) {
         String year = String.valueOf(java.time.Year.now().getValue());
-        String typeCode = getCaseTypeCode(caseType);
+        String typeCode = getCaseTypeCodeChinese(caseType);
 
         // 查询当年该类型的案件数量
         long count = caseRepository.countByCaseTypeAndDeletedFalse(caseType);
 
-        // 生成格式：年份-类型代码-序号
-        return String.format("%s-%s-%04d", year, typeCode, count + 1);
+        // 生成格式：[年]粤至高[类型]字第XXX号
+        return String.format("%s粤至高%s字第%04d号", year, typeCode, count + 1);
     }
 
     // 辅助方法
@@ -646,6 +708,7 @@ public class CaseService {
             case "CRIMINAL": return "刑事";
             case "ADMINISTRATIVE": return "行政";
             case "NON_LITIGATION": return "非诉";
+            case "FINANCIAL_NPA": return "金融不良资产";
             default: return type;
         }
     }
@@ -694,8 +757,58 @@ public class CaseService {
             case "CRIMINAL": return "C";
             case "ADMINISTRATIVE": return "A";
             case "NON_LITIGATION": return "N";
+            case "FINANCIAL_NPA": return "FNA";
             default: return "X";
         }
+    }
+
+    /**
+     * 获取案件类型中文字符（用于案号生成）
+     * 映射：CIVIL->民, CRIMINAL->刑, ADMINISTRATIVE->行, NON_LITIGATION->非, ADVISORY->顾
+     */
+    private String getCaseTypeCodeChinese(String caseType) {
+        if (caseType == null) return "其";
+        switch (caseType) {
+            case "CIVIL": return "民";
+            case "CRIMINAL": return "刑";
+            case "ADMINISTRATIVE": return "行";
+            case "NON_LITIGATION": return "非";
+            case "ADVISORY": return "顾";
+            case "COMMERCIAL": return "商";
+            case "ARBITRATION": return "仲";
+            case "FINANCIAL_NPA": return "金";
+            default: return "其";
+        }
+    }
+
+    private void applyNpaFields(Case caseEntity, CaseCreateRequest request) {
+        caseEntity.setNpaSubtype(request.getNpaSubtype());
+        caseEntity.setEntrustingBankName(request.getEntrustingBankName());
+        caseEntity.setAssetBatchNo(request.getAssetBatchNo());
+        caseEntity.setTransferAgreementNo(request.getTransferAgreementNo());
+        caseEntity.setLoanContractNo(request.getLoanContractNo());
+        caseEntity.setPrincipalBalance(request.getPrincipalBalance());
+        caseEntity.setInterestBalance(request.getInterestBalance());
+        caseEntity.setGuaranteeType(request.getGuaranteeType());
+        caseEntity.setCollateralStatus(request.getCollateralStatus());
+        caseEntity.setPreservationStatus(request.getPreservationStatus());
+        caseEntity.setExecutionRecoveryAmount(request.getExecutionRecoveryAmount());
+        caseEntity.setTerminationStatus(request.getTerminationStatus());
+    }
+
+    private void applyNpaFields(Case caseEntity, CaseUpdateRequest request) {
+        if (request.getNpaSubtype() != null) caseEntity.setNpaSubtype(request.getNpaSubtype());
+        if (request.getEntrustingBankName() != null) caseEntity.setEntrustingBankName(request.getEntrustingBankName());
+        if (request.getAssetBatchNo() != null) caseEntity.setAssetBatchNo(request.getAssetBatchNo());
+        if (request.getTransferAgreementNo() != null) caseEntity.setTransferAgreementNo(request.getTransferAgreementNo());
+        if (request.getLoanContractNo() != null) caseEntity.setLoanContractNo(request.getLoanContractNo());
+        if (request.getPrincipalBalance() != null) caseEntity.setPrincipalBalance(request.getPrincipalBalance());
+        if (request.getInterestBalance() != null) caseEntity.setInterestBalance(request.getInterestBalance());
+        if (request.getGuaranteeType() != null) caseEntity.setGuaranteeType(request.getGuaranteeType());
+        if (request.getCollateralStatus() != null) caseEntity.setCollateralStatus(request.getCollateralStatus());
+        if (request.getPreservationStatus() != null) caseEntity.setPreservationStatus(request.getPreservationStatus());
+        if (request.getExecutionRecoveryAmount() != null) caseEntity.setExecutionRecoveryAmount(request.getExecutionRecoveryAmount());
+        if (request.getTerminationStatus() != null) caseEntity.setTerminationStatus(request.getTerminationStatus());
     }
 
     /**

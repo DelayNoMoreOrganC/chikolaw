@@ -1,0 +1,85 @@
+# ============================================
+# 债权计算表自动生成系统 - 配置文件
+# ============================================
+
+# Ollama 本地大模型配置
+ollama:
+  base_url: "http://127.0.0.1:11434"
+  model: "auto"  # 优先使用本机可用模型；如指定具体模型且缺失，会自动回退
+  preferred_models:
+    - "qwen3:8b"
+    - "qwen2.5:7b"
+    - "deepseek-r1:32b"
+    - "llama3:8b"
+  timeout: 120  # 请求超时时间（秒）
+  temperature: 0.1  # 温度参数，越低越确定性
+
+# Tesseract OCR 配置
+tesseract:
+  # Windows系统路径示例（需要根据实际安装位置修改）
+  # tesseract_cmd: "C:/Program Files/Tesseract-OCR/tesseract.exe"
+  # Linux/Mac通常在PATH中，无需配置
+  tesseract_cmd: "C:/Program Files/Tesseract-OCR/tesseract.exe"
+  language: "chi_sim+eng"  # 中文简体+英文
+
+# PDF处理配置
+pdf:
+  # OCR DPI（影响图片质量和识别速度）
+  dpi: 200
+  # 最大页数限制（防止超大文件）
+  max_pages: 50
+  # 临时文件保留（调试用）
+  keep_temp_files: false
+
+# 债权计算默认参数
+calculation:
+  # 天数计算规则: "actual/360", "actual/365", "actual/actual"
+  day_count_convention: "actual/360"
+  # 日期计算方式: "bilateral"(双边), "head_exclusive"(算头不算尾)
+  date_calculation: "head_exclusive"
+  # 金额精度
+  decimal_precision: 2
+  # 复利计算开关
+  enable_compound_interest: true
+  # 罚息计算开关
+  enable_penalty_interest: true
+  # 默认罚息利率上浮比例（如50%表示原利率×1.5）
+  penalty_rate_multiplier: 1.5
+
+# 还款抵扣顺序（按优先级排列）
+repayment_priority:
+  - "fee"         # 费用
+  - "penalty"     # 罚息/违约金
+  - "compound"    # 复利
+  - "interest"    # 利息
+  - "principal"   # 本金
+
+# Excel导出配置
+excel:
+  # 默认Sheet名称
+  sheet_summary: "债权汇总"
+  sheet_detail: "计息明细"
+  sheet_records: "还款记录"
+  # 日期格式
+  date_format: "YYYY-MM-DD"
+  # 金额格式
+  currency_format: "#,##0.00"
+  # 自动调整列宽
+  auto_width: true
+
+# 应用配置
+app:
+  title: "债权计算表自动生成系统"
+  # 页面布局: "centered" or "wide"
+  layout: "wide"
+  # 侧边栏状态: "expanded" or "collapsed"
+  sidebar_state: "expanded"
+  # 主题: "light" or "dark"
+  theme: "light"
+
+# 日志配置
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "logs/app.log"
+  rotation: "10 MB"
+  retention: "30 days"

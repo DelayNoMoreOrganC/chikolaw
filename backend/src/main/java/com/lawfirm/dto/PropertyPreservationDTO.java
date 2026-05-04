@@ -38,6 +38,10 @@ public class PropertyPreservationDTO {
     private BigDecimal insuranceAmount;
     private String insuranceCompany;
     private String guaranteeType;
+    private String registrySearchRecord;
+    private String collateralStatus;
+    private String seizureSequence;
+    private String riskWarning;
     private String remarks;
     private Long createdBy;
     private String createdByName;

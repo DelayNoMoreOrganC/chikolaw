@@ -16,10 +16,16 @@
       <div class="calendar-section">
         <div class="section-header">
           <h3>日程安排</h3>
-          <el-radio-group v-model="calendarView" size="small">
-            <el-radio-button value="month">月视图</el-radio-button>
-            <el-radio-button value="week">周视图</el-radio-button>
-          </el-radio-group>
+          <div class="header-actions">
+            <el-radio-group v-model="calendarView" size="small">
+              <el-radio-button value="month">月视图</el-radio-button>
+              <el-radio-button value="week">周视图</el-radio-button>
+            </el-radio-group>
+            <el-button type="primary" size="small" @click="handleCreateEvent">
+              <el-icon><Plus /></el-icon>
+              新建日程
+            </el-button>
+          </div>
         </div>
         <div class="calendar-view">
           <el-calendar v-model="calendarDate">
@@ -422,7 +428,9 @@ const fetchCalendarEvents = async () => {
     })
 
     if (response.success) {
-      const events = response.data.list || []
+      const events = Array.isArray(response.data)
+        ? response.data
+        : (response.data?.list || response.data?.records || [])
       calendarEvents.value = events.map(event => ({
         id: event.id,
         date: formatDateToString(new Date(event.startTime)),
@@ -495,7 +503,9 @@ const fetchTodos = async () => {
       sortOrder: 'ASC'
     })
     if (response.success) {
-      todos.value = response.data.list || []
+      todos.value = Array.isArray(response.data)
+        ? response.data
+        : (response.data?.list || response.data?.records || [])
     }
   } catch (error) {
     console.error('获取待办失败:', error)
@@ -552,7 +562,13 @@ const handleTodoComplete = (todo) => {
 }
 
 const handleCreateTodo = () => {
-  // removed debug log
+  // 直接跳转到日程页面的新建功能，因为待办功能集成在日程管理中
+  router.push('/calendar')
+}
+
+const handleCreateEvent = () => {
+  // 直接跳转到日程管理页面
+  router.push('/calendar')
 }
 
 const handleEditTodo = (todo) => {
@@ -703,11 +719,20 @@ onMounted(() => {
         justify-content: space-between;
         align-items: center;
         margin-bottom: 16px;
+        flex-wrap: wrap;
+        gap: 10px;
 
         h3 {
           margin: 0;
           color: #303133;
           font-size: 16px;
+        }
+
+        .header-actions {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
         }
       }
 
@@ -852,12 +877,21 @@ onMounted(() => {
         justify-content: space-between;
         align-items: center;
         margin-bottom: 20px;
+        flex-wrap: wrap;
+        gap: 10px;
 
         h3 {
           margin: 0;
           font-size: 16px;
           font-weight: 500;
           color: #333;
+        }
+
+        .header-actions {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          flex-wrap: wrap;
         }
       }
     }

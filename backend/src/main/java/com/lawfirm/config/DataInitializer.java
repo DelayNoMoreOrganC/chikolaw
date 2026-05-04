@@ -6,17 +6,19 @@ import com.lawfirm.repository.AIConfigRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 /**
  * 数据初始化器 - 应用启动时创建默认用户和测试数据
  */
 @Slf4j
 @Component
+@Order(1) // 最高优先级，首先执行
 @RequiredArgsConstructor
 public class DataInitializer implements CommandLineRunner {
 
@@ -27,10 +29,14 @@ public class DataInitializer implements CommandLineRunner {
     private final TodoRepository todoRepository;
     private final CalendarRepository calendarRepository;
     private final AIConfigRepository aiConfigRepository;
+    private final DepartmentRepository departmentRepository;
 
     @Override
     public void run(String... args) {
         try {
+            ensureDefaultRoles();
+            ensureDefaultDepartments();
+
             if (userRepository.count() == 0) {
                 log.info("数据库为空，创建默认用户和测试数据...");
 
@@ -45,14 +51,9 @@ public class DataInitializer implements CommandLineRunner {
                 admin.setDeleted(false);
                 User savedAdmin = userRepository.save(admin);
 
-                // 2. 创建ADMIN角色
-                Role adminRole = new Role();
-                adminRole.setRoleName("管理员");
-                adminRole.setRoleCode("ADMIN");
-                adminRole.setDescription("系统管理员，拥有所有权限");
-                adminRole.setCreatedAt(LocalDateTime.now());
-                adminRole.setUpdatedAt(LocalDateTime.now());
-                Role savedRole = roleRepository.save(adminRole);
+                // 2. 获取ADMIN角色
+                Role savedRole = roleRepository.findByRoleCode("ADMIN")
+                        .orElseThrow(() -> new IllegalStateException("ADMIN角色初始化失败"));
 
                 // 3. 分配角色
                 UserRole userRole = new UserRole();
@@ -81,6 +82,44 @@ public class DataInitializer implements CommandLineRunner {
         } catch (Exception e) {
             log.error("数据初始化失败", e);
         }
+    }
+
+    private void ensureDefaultRoles() {
+        Map<String, String> roles = Map.of(
+                "ADMIN", "管理员",
+                "DIRECTOR", "主任",
+                "LAWYER_MAIN", "主办律师",
+                "LAWYER_ASSIST", "协办律师",
+                "ASSISTANT", "律师助理",
+                "FINANCE", "财务"
+        );
+
+        roles.forEach((code, name) -> {
+            if (!roleRepository.existsByRoleCode(code)) {
+                Role role = new Role();
+                role.setRoleCode(code);
+                role.setRoleName(name);
+                role.setDescription(name + "预置角色");
+                roleRepository.save(role);
+                log.info("创建预置角色: {}({})", name, code);
+            }
+        });
+    }
+
+    private void ensureDefaultDepartments() {
+        if (departmentRepository.count() > 0) {
+            return;
+        }
+
+        String[] departments = {"诉讼清收部", "执行保全部", "金融客户部", "财务部", "行政部"};
+        for (String name : departments) {
+            Department department = new Department();
+            department.setDeptName(name);
+            department.setParentId(0L);
+            department.setDescription(name + "默认部门");
+            departmentRepository.save(department);
+        }
+        log.info("默认部门初始化完成");
     }
 
     private void createTestData(User admin) {

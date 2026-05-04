@@ -25,7 +25,7 @@ public class StatisticsController {
      * 获取统计卡片数据
      * GET /api/statistics/overview
      */
-    @GetMapping("/overview")
+    @GetMapping({"/overview", "/cards", "/cases"})
     public Result<Map<String, Object>> getOverview(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
@@ -42,7 +42,7 @@ public class StatisticsController {
      * 获取案件数量趋势
      * GET /api/statistics/case-trends
      */
-    @GetMapping("/case-trends")
+    @GetMapping({"/case-trends", "/case-trend"})
     public Result<Map<String, Object>> getCaseTrends(
             @RequestParam(defaultValue = "month") String period,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
@@ -60,7 +60,7 @@ public class StatisticsController {
      * 获取案件类型分布
      * GET /api/statistics/case-types
      */
-    @GetMapping("/case-types")
+    @GetMapping({"/case-types", "/case-type-distribution"})
     public Result<Map<String, Object>> getCaseTypes(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
@@ -79,7 +79,7 @@ public class StatisticsController {
      * 获取收费统计
      * GET /api/statistics/fees
      */
-    @GetMapping("/fees")
+    @GetMapping({"/fees", "/fee-statistics"})
     public Result<Map<String, Object>> getFeeStatistics(
             @RequestParam(defaultValue = "month") String type,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
@@ -142,6 +142,21 @@ public class StatisticsController {
         } catch (Exception e) {
             log.error("获取收款率统计失败", e);
             return Result.error("获取收款率统计失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取金融不良资产专项统计
+     * GET /api/statistics/npa
+     */
+    @GetMapping("/npa")
+    public Result<Map<String, Object>> getNpaStatistics() {
+        try {
+            Map<String, Object> result = statisticsService.getNpaStatistics();
+            return Result.success(result);
+        } catch (Exception e) {
+            log.error("获取不良资产统计失败", e);
+            return Result.error("获取不良资产统计失败: " + e.getMessage());
         }
     }
 

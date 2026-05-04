@@ -41,10 +41,10 @@ spring:
         globally_quoted_identifiers: true
     open-in-view: false
 
-  # 启用SQL脚本初始化（仅在首次）
+  # 禁用SQL脚本初始化，使用Hibernate自动创建
   sql:
     init:
-      mode: embedded
+      mode: never
 
   # 完全禁用Redis（开发环境）
   autoconfigure:

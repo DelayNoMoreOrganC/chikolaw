@@ -12,7 +12,7 @@ export function getStatsCards(params) {
 // 获取案件数量趋势
 export function getCaseTrend(params) {
   return request({
-    url: '/statistics/case-trend',
+    url: '/statistics/case-trends',
     method: 'get',
     params
   })
@@ -21,7 +21,7 @@ export function getCaseTrend(params) {
 // 获取案件类型分布
 export function getCaseTypeDistribution(params) {
   return request({
-    url: '/statistics/case-type-distribution',
+    url: '/statistics/case-types',
     method: 'get',
     params
   })
@@ -30,7 +30,7 @@ export function getCaseTypeDistribution(params) {
 // 获取收费统计
 export function getFeeStatistics(params) {
   return request({
-    url: '/statistics/fee-statistics',
+    url: '/statistics/fees',
     method: 'get',
     params
   })

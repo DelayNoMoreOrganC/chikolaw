@@ -48,7 +48,13 @@
     </div>
 
     <!-- 文档列表 -->
-    <el-table :data="documentList" border v-loading="loading" stripe>
+    <div v-if="!loading && documentList.length === 0" class="empty-state">
+      <el-empty description="暂无文档数据">
+        <el-button type="primary" @click="$router.push('/case/create')">创建新案件</el-button>
+      </el-empty>
+    </div>
+
+    <el-table v-else :data="documentList" border v-loading="loading" stripe>
       <el-table-column prop="documentName" label="文档名称" min-width="250">
         <template #default="{ row }">
           <div class="file-name" @click="handlePreview(row)">

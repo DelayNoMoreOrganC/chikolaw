@@ -41,6 +41,11 @@ public class CaseExecutionDTO {
     private BigDecimal executedAmount;
     private String executionMilestone;
     private String nextStep;
+    private String valuationStatus;
+    private String auctionStatus;
+    private String distributionStatus;
+    private String terminationStatus;
+    private BigDecimal debtCalculation;
     private String remarks;
     private Long createdBy;
     private String createdByName;

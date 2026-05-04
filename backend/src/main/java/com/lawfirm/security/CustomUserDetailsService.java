@@ -81,6 +81,22 @@ public class CustomUserDetailsService implements UserDetailsService {
                     authorities.add(new SimpleGrantedAuthority("ROLE_EDIT"));
                     authorities.add(new SimpleGrantedAuthority("AI_CONFIG"));
                     authorities.add(new SimpleGrantedAuthority("SYSTEM_CONFIG"));
+                } else if ("DIRECTOR".equals(role.getRoleCode()) || "MANAGER".equals(role.getRoleCode())) {
+                    addAuthorities(authorities, "CASE_CREATE", "CASE_VIEW", "CASE_EDIT", "CASE_ARCHIVE",
+                            "CLIENT_VIEW", "CLIENT_EDIT", "STATISTICS_VIEW", "STATISTICS_EXPORT",
+                            "DOCUMENT_VIEW", "DOCUMENT_EDIT", "CALENDAR_VIEW", "CALENDAR_EDIT",
+                            "TODO_VIEW", "TODO_EDIT", "APPROVAL_VIEW", "APPROVAL_EDIT",
+                            "FINANCE_VIEW", "USER_VIEW", "ROLE_VIEW");
+                } else if ("LAWYER_MAIN".equals(role.getRoleCode())) {
+                    addAuthorities(authorities, "CASE_CREATE", "CASE_VIEW", "CASE_EDIT", "CASE_ARCHIVE",
+                            "CLIENT_VIEW", "CLIENT_EDIT", "STATISTICS_VIEW", "DOCUMENT_VIEW", "DOCUMENT_EDIT",
+                            "CALENDAR_VIEW", "CALENDAR_EDIT", "TODO_VIEW", "TODO_EDIT", "APPROVAL_VIEW");
+                } else if ("LAWYER_ASSIST".equals(role.getRoleCode()) || "ASSISTANT".equals(role.getRoleCode())) {
+                    addAuthorities(authorities, "CASE_VIEW", "CASE_EDIT", "CLIENT_VIEW", "DOCUMENT_VIEW",
+                            "DOCUMENT_EDIT", "CALENDAR_VIEW", "CALENDAR_EDIT", "TODO_VIEW", "TODO_EDIT");
+                } else if ("FINANCE".equals(role.getRoleCode())) {
+                    addAuthorities(authorities, "CASE_VIEW", "CLIENT_VIEW", "STATISTICS_VIEW",
+                            "FINANCE_VIEW", "FINANCE_EDIT", "DOCUMENT_VIEW");
                 }
             }
         }
@@ -92,5 +108,11 @@ public class CustomUserDetailsService implements UserDetailsService {
                 .accountLocked(user.getStatus() == 0)
                 .disabled(user.getStatus() == 0)
                 .build();
+    }
+
+    private void addAuthorities(List<SimpleGrantedAuthority> authorities, String... codes) {
+        for (String code : codes) {
+            authorities.add(new SimpleGrantedAuthority(code));
+        }
     }
 }

@@ -36,6 +36,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class StatisticsService {
 
+    private static final Set<String> ACTIVE_CASE_STATUSES = Set.of(
+            "CONSULTATION", "SIGNED", "PENDING_FILING", "ACTIVE", "active", "审理中");
+    private static final Set<String> CLOSED_CASE_STATUSES = Set.of(
+            "CLOSED", "closed");
+
     private final CaseRepository caseRepository;
     private final FinanceRecordRepository financeRecordRepository;
     private final PaymentRepository paymentRepository;
@@ -81,13 +86,13 @@ public class StatisticsService {
 
         // 进行中案件
         long activeCases = allCases.stream()
-                .filter(c -> "active".equals(c.getStatus()))
+                .filter(this::isActiveCase)
                 .count();
         result.put("activeCases", activeCases);
 
         // 已结案
         long closedCases = allCases.stream()
-                .filter(c -> "closed".equals(c.getStatus()))
+                .filter(this::isClosedCase)
                 .count();
         result.put("closedCases", closedCases);
 
@@ -161,7 +166,7 @@ public class StatisticsService {
 
                 // 查询该月结案数
                 long closedCount = monthCases.stream()
-                        .filter(c -> "closed".equals(c.getStatus()))
+                        .filter(this::isClosedCase)
                         .count();
                 closedCasesData.add((int) closedCount);
             }
@@ -185,7 +190,7 @@ public class StatisticsService {
                 newCases.add(quarterCases.size());
 
                 long closedCount = quarterCases.stream()
-                        .filter(c -> "closed".equals(c.getStatus()))
+                        .filter(this::isClosedCase)
                         .count();
                 closedCasesData.add((int) closedCount);
             }
@@ -207,7 +212,7 @@ public class StatisticsService {
                 newCases.add(yearCases.size());
 
                 long closedCount = yearCases.stream()
-                        .filter(c -> "closed".equals(c.getStatus()))
+                        .filter(this::isClosedCase)
                         .count();
                 closedCasesData.add((int) closedCount);
             }
@@ -342,7 +347,7 @@ public class StatisticsService {
                                 .collect(Collectors.toList());
                         long total = lawyerCases.size();
                         long closed = lawyerCases.stream()
-                                .filter(c -> "closed".equals(c.getStatus()))
+                                .filter(this::isClosedCase)
                                 .count();
                         double rate = total > 0 ? (double) closed / total * 100 : 0;
                         item.put("value", String.format("%.1f%%", rate));
@@ -378,7 +383,7 @@ public class StatisticsService {
 
         // 统计结案案件的胜诉情况（需要从案件结果的字段统计）
         long closedCount = cases.stream()
-                .filter(c -> "closed".equals(c.getStatus()))
+                .filter(this::isClosedCase)
                 .count();
 
         // 由于缺少案件结果字段，这里使用模拟数据
@@ -450,6 +455,50 @@ public class StatisticsService {
         result.put("received", received);
         result.put("collectionRate", collectionRate);
 
+        return result;
+    }
+
+    public Map<String, Object> getNpaStatistics() {
+        Map<String, Object> result = new HashMap<>();
+        List<Case> npaCases = caseRepository.findByCaseType("FINANCIAL_NPA").stream()
+                .filter(c -> !Boolean.TRUE.equals(c.getDeleted()))
+                .collect(Collectors.toList());
+
+        BigDecimal principal = npaCases.stream()
+                .map(Case::getPrincipalBalance)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal interest = npaCases.stream()
+                .map(Case::getInterestBalance)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal recovered = npaCases.stream()
+                .map(Case::getExecutionRecoveryAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal receivable = principal.add(interest);
+        double recoveryRate = receivable.compareTo(BigDecimal.ZERO) > 0
+                ? recovered.divide(receivable, 4, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100")).doubleValue()
+                : 0D;
+
+        Map<String, Long> byBank = npaCases.stream()
+                .filter(c -> c.getEntrustingBankName() != null)
+                .collect(Collectors.groupingBy(Case::getEntrustingBankName, Collectors.counting()));
+        Map<String, Long> byBatch = npaCases.stream()
+                .filter(c -> c.getAssetBatchNo() != null)
+                .collect(Collectors.groupingBy(Case::getAssetBatchNo, Collectors.counting()));
+
+        result.put("totalCases", npaCases.size());
+        result.put("principalBalance", principal);
+        result.put("interestBalance", interest);
+        result.put("executionRecoveryAmount", recovered);
+        result.put("recoveryRate", recoveryRate);
+        result.put("terminatedCases", npaCases.stream()
+                .filter(c -> "TERMINATED".equals(c.getTerminationStatus()) || "终本".equals(c.getTerminationStatus()))
+                .count());
+        result.put("byBank", byBank);
+        result.put("byBatch", byBatch);
         return result;
     }
 
@@ -767,5 +816,13 @@ public class StatisticsService {
             log.error("PDF导出失败", e);
             throw new RuntimeException("PDF导出失败: " + e.getMessage());
         }
+    }
+
+    private boolean isActiveCase(Case caseEntity) {
+        return caseEntity != null && ACTIVE_CASE_STATUSES.contains(caseEntity.getStatus());
+    }
+
+    private boolean isClosedCase(Case caseEntity) {
+        return caseEntity != null && CLOSED_CASE_STATUSES.contains(caseEntity.getStatus());
     }
 }

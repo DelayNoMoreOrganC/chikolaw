@@ -1,5 +1,6 @@
 package com.lawfirm.controller;
 
+import com.lawfirm.annotation.AuditLog;
 import com.lawfirm.dto.CaseDocumentDTO;
 import com.lawfirm.service.CaseDocumentService;
 import com.lawfirm.security.SecurityUtils;
@@ -9,15 +10,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 
 /**
@@ -38,6 +35,7 @@ public class CaseDocumentController {
      */
     @PostMapping
     @PreAuthorize("isAuthenticated()")
+    @AuditLog(value = "上传案件文档", operationType = "UPLOAD", logParams = false)
     public Result<CaseDocumentDTO> uploadDocument(
             @PathVariable Long caseId,
             @RequestParam("file") MultipartFile file,
@@ -118,6 +116,7 @@ public class CaseDocumentController {
      */
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('CASE_EDIT')")
+    @AuditLog(value = "更新案件文档", operationType = "UPDATE")
     public Result<CaseDocumentDTO> updateDocument(
             @PathVariable Long caseId,
             @PathVariable Long id,
@@ -162,6 +161,7 @@ public class CaseDocumentController {
      */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('CASE_EDIT')")
+    @AuditLog(value = "删除案件文档", operationType = "DELETE")
     public Result<Void> deleteDocument(
             @PathVariable Long caseId,
             @PathVariable Long id) {
@@ -196,28 +196,13 @@ public class CaseDocumentController {
                 return;
             }
 
-            Path filePath = Paths.get(document.getFilePath());
-            if (!java.nio.file.Files.exists(filePath)) {
-                response.setStatus(HttpServletResponse.SC_NOT_FOUND);
-                response.getWriter().write("文件不存在");
-                return;
-            }
-
-            Resource resource = new UrlResource(filePath.toUri());
-
-            String contentType = null;
-            try {
-                contentType = java.nio.file.Files.probeContentType(filePath);
-            } catch (IOException e) {
-                contentType = "application/octet-stream";
-            }
-
-            response.setContentType(contentType != null ? contentType : "application/octet-stream");
+            response.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
             response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
                     "attachment; filename=\"" + document.getDocumentName() + "\"");
 
-            java.io.InputStream inputStream = resource.getInputStream();
-            org.springframework.util.StreamUtils.copy(inputStream, response.getOutputStream());
+            try (java.io.InputStream inputStream = caseDocumentService.openDocumentStream(id)) {
+                org.springframework.util.StreamUtils.copy(inputStream, response.getOutputStream());
+            }
 
             response.flushBuffer();
         } catch (Exception e) {
