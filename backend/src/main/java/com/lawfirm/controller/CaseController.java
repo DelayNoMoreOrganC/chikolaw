@@ -43,6 +43,7 @@ public class CaseController {
     private final ArchivePdfService archivePdfService;
     private final ExcelExportService excelExportService;
     private final com.lawfirm.security.SecurityUtils securityUtils;
+    private final CaseAnalysisService caseAnalysisService;
 
     /**
      * 创建案件
@@ -74,8 +75,20 @@ public class CaseController {
     }
 
     /**
-     * 获取案件详情
+     * AI 案件分析（LLM 语义化）
+     * GET /api/cases/{id}/ai-analysis
      */
+    @GetMapping("/{id}/ai-analysis")
+    @PreAuthorize("isAuthenticated()")
+    public Result<java.util.Map<String, Object>> analyzeCase(@PathVariable Long id) {
+        try {
+            return Result.success(caseAnalysisService.analyzeCase(id));
+        } catch (Exception e) {
+            log.error("案件 AI 分析失败: caseId={}", id, e);
+            return Result.error("案件分析失败: " + e.getMessage());
+        }
+    }
+
     @GetMapping("/{id}")
     @PreAuthorize("isAuthenticated()")
     public Result<CaseDetailVO> getCaseDetail(@PathVariable Long id) {

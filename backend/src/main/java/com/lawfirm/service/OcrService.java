@@ -4,6 +4,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * @deprecated 请使用 {@link AIDocumentService} / POST /api/ai/documents/recognize
+ */
+@Deprecated
 @Slf4j
 @Service
 public class OcrService {

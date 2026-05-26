@@ -7,6 +7,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+/**
+ * @deprecated 请使用 POST /api/ai/documents/recognize
+ */
+@Deprecated
 @Slf4j
 @RestController
 @RequestMapping("/ocr")
@@ -17,8 +21,11 @@ public class OcrController {
     @PostMapping("/recognize")
     public Result<String> recognizeDocument(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "type", defaultValue = "document") String type) {
+            @RequestParam(value = "type", defaultValue = "document") String type,
+            javax.servlet.http.HttpServletResponse response) {
+        response.setHeader("Warning", "299 - \"Deprecated: use POST /api/ai/documents/recognize\"");
         try {
+            log.warn("调用已废弃接口 /api/ocr/recognize，请迁移至 /api/ai/documents/recognize");
             log.info("OCR识别请求: 文件名={}, 类型={}", file.getOriginalFilename(), type);
             if (file.isEmpty()) {
                 return Result.error("文件不能为空");

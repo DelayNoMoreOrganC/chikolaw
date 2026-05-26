@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @ConfigurationProperties(prefix = "qdrant")
 public class QdrantConfig {
+    private boolean enabled = false;
     private String host = "localhost";
     private int port = 6333;
     private int grpcPort = 6334;

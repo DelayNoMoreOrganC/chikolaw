@@ -28,6 +28,10 @@ import java.util.stream.Collectors;
 public class CaseSearchService {
 
     private final CaseRepository caseRepository;
+    private final EmbeddingService embeddingService;
+
+    @org.springframework.beans.factory.annotation.Value("${case-search.semantic.enabled:false}")
+    private boolean semanticEnabled;
 
     /**
      * 根据检索条件查找相似案例
@@ -117,7 +121,36 @@ public class CaseSearchService {
             return 0.5;
         }
 
+        if (semanticEnabled) {
+            try {
+                double semantic = embeddingCosine(reason1, reason2);
+                if (semantic > 0.75) {
+                    return Math.max(0.5, semantic);
+                }
+            } catch (Exception e) {
+                log.debug("案由语义相似度回退文本匹配: {}", e.getMessage());
+            }
+        }
+
         return 0.0;
+    }
+
+    private double embeddingCosine(String a, String b) {
+        java.util.List<Double> va = embeddingService.embedText(a);
+        java.util.List<Double> vb = embeddingService.embedText(b);
+        double dot = 0, na = 0, nb = 0;
+        int len = Math.min(va.size(), vb.size());
+        for (int i = 0; i < len; i++) {
+            double x = va.get(i);
+            double y = vb.get(i);
+            dot += x * y;
+            na += x * x;
+            nb += y * y;
+        }
+        if (na == 0 || nb == 0) {
+            return 0;
+        }
+        return dot / (Math.sqrt(na) * Math.sqrt(nb));
     }
 
     /**

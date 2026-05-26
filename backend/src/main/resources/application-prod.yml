@@ -1,0 +1,56 @@
+# 生产环境：MySQL + Redis + HTTPS（由反向代理终止 TLS）
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${LAWFIRM_DB_URL:jdbc:mysql://localhost:3306/lawfirm?useSSL=true&serverTimezone=Asia/Shanghai&characterEncoding=utf8}
+    username: ${LAWFIRM_DB_USER:lawfirm}
+    password: ${LAWFIRM_DB_PASSWORD:}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+  autoconfigure:
+    exclude: []
+
+server:
+  forward-headers-strategy: framework
+
+backup:
+  base:
+    dir: ${BACKUP_DIR:/var/lawfirm/backups}
+  retention:
+    days: 180
+
+# 生产：类案语义检索（需配置有效 ALIYUN_API_KEY）
+case-search:
+  semantic:
+    enabled: ${CASE_SEARCH_SEMANTIC_ENABLED:true}
+
+qdrant:
+  enabled: ${QDRANT_ENABLED:true}
+  host: ${QDRANT_HOST:localhost}
+  port: ${QDRANT_PORT:6333}
+
+agent:
+  runtime:
+    provider: ${AGENT_PROVIDER:builtin}
+    openclaw:
+      base-url: ${OPENCLAW_BASE_URL:http://127.0.0.1:18789/v1}
+      api-key: ${OPENCLAW_API_KEY:}
+      model: ${OPENCLAW_MODEL:main}
+
+hermes:
+  agent:
+    enabled: ${HERMES_ENABLED:false}
+    base-url: ${HERMES_BASE_URL:http://127.0.0.1:17888}
+
+llm:
+  fallback:
+    enabled: ${LLM_FALLBACK_ENABLED:true}
+    provider: ${LLM_FALLBACK_PROVIDER:deepseek}
