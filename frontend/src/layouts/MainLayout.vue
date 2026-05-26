@@ -113,12 +113,8 @@
       </el-header>
 
       <!-- 主内容 -->
-      <el-main class="main-content">
-        <router-view v-slot="{ Component }">
-          <transition name="fade-transform" mode="out-in">
-            <component :is="Component" />
-          </transition>
-        </router-view>
+      <el-main class="main-content route-transition-host">
+        <RouteContent />
       </el-main>
     </el-container>
 
@@ -136,13 +132,15 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore, useAppStore } from '@/stores'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import AIAssistant from '@/views/ai/assistant.vue'
 import NotificationPanel from '@/components/NotificationPanel.vue'
+import RouteContent from '@/components/layout/RouteContent.vue'
 import { getUnreadCount } from '@/api/notification'
+
+const AIAssistant = defineAsyncComponent(() => import('@/views/ai/assistant.vue'))
 
 const route = useRoute()
 const router = useRouter()
@@ -335,6 +333,8 @@ const handleSearch = () => {
 const unreadCount = ref(0)
 const showNotificationPanel = ref(false)
 const notificationPanelRef = ref(null)
+let unreadPollTimer = null
+const UNREAD_POLL_MS = 60000
 const showNotifications = () => {
   showNotificationPanel.value = true
 }
@@ -410,27 +410,39 @@ const handleResize = () => {
   }
 }
 
+const startUnreadPolling = () => {
+  if (unreadPollTimer || !userStore.isLoggedIn) return
+  const tick = () => {
+    if (document.visibilityState === 'visible') {
+      updateUnreadCount()
+    }
+  }
+  tick()
+  unreadPollTimer = window.setInterval(tick, UNREAD_POLL_MS)
+}
+
+const stopUnreadPolling = () => {
+  if (unreadPollTimer) {
+    clearInterval(unreadPollTimer)
+    unreadPollTimer = null
+  }
+}
+
 onMounted(() => {
   window.addEventListener('resize', handleResize)
+  document.addEventListener('visibilitychange', updateUnreadCount)
 
-  // 移动端初始化时自动折叠侧边栏
   if (isMobile.value) {
     appStore.closeSidebar()
   }
 
-  // 获取未读通知数量（仅在用户已登录时）
-  if (userStore.isLoggedIn) {
-    updateUnreadCount()
-  }
-
-  // 定时刷新未读数量（每30秒，仅在用户已登录时）
-  if (userStore.isLoggedIn) {
-    setInterval(updateUnreadCount, 30000)
-  }
+  startUnreadPolling()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
+  document.removeEventListener('visibilitychange', updateUnreadCount)
+  stopUnreadPolling()
 })
 </script>
 
@@ -577,7 +589,9 @@ onBeforeUnmount(() => {
     }
 
     .main-content {
-      background-color: #f0f2f5;
+      position: relative;
+      background-color: var(--lawos-bg, #f2f4f8);
+      overflow-x: hidden;
       overflow-y: auto;
       padding: 20px;
     }
@@ -674,19 +688,4 @@ onBeforeUnmount(() => {
   }
 }
 
-// 页面切换动画
-.fade-transform-enter-active,
-.fade-transform-leave-active {
-  transition: all 0.3s;
-}
-
-.fade-transform-enter-from {
-  opacity: 0;
-  transform: translateX(30px);
-}
-
-.fade-transform-leave-to {
-  opacity: 0;
-  transform: translateX(-30px);
-}
 </style>

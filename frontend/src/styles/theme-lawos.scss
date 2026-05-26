@@ -1,0 +1,54 @@
+/**
+ * LawOS 设计 Token — macOS 风 · 蓝灰科技（PRD v2.1 §2.2）
+ */
+:root {
+  --lawos-bg: #f2f4f8;
+  --lawos-surface: rgba(255, 255, 255, 0.78);
+  --lawos-surface-solid: #ffffff;
+  --lawos-primary: #3b6fd9;
+  --lawos-primary-hover: #2f5bb5;
+  --lawos-accent: #5b8def;
+  --lawos-text: #1c1c1e;
+  --lawos-text-secondary: #6b7280;
+  --lawos-border: rgba(15, 23, 42, 0.08);
+  --lawos-radius-lg: 12px;
+  --lawos-radius-md: 8px;
+  --lawos-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.04);
+  --lawos-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
+
+  /* Element Plus 主色覆盖 */
+  --el-color-primary: #3b6fd9;
+  --el-color-primary-light-3: #6b93e4;
+  --el-color-primary-light-5: #9bb5ec;
+  --el-color-primary-light-7: #cbd8f5;
+  --el-color-primary-light-8: #e0e9fa;
+  --el-color-primary-light-9: #eef3fc;
+  --el-color-primary-dark-2: #2f5bb5;
+}
+
+html,
+body,
+#app {
+  font-family: var(--lawos-font);
+  color: var(--lawos-text);
+  background-color: var(--lawos-bg);
+}
+
+.el-button--primary {
+  --el-button-bg-color: var(--lawos-primary);
+  --el-button-border-color: var(--lawos-primary);
+  --el-button-hover-bg-color: var(--lawos-primary-hover);
+  --el-button-hover-border-color: var(--lawos-primary-hover);
+}
+
+.el-input__wrapper,
+.el-textarea__inner {
+  border-radius: var(--lawos-radius-md);
+}
+
+.el-card {
+  border-radius: var(--lawos-radius-lg);
+  border-color: var(--lawos-border);
+  box-shadow: var(--lawos-shadow-sm);
+}

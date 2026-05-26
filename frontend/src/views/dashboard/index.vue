@@ -3,6 +3,23 @@
     <!-- 核心：卷宗智能录入（传文件→AI分析→登记备注→案件档案夹） -->
     <CaseFileIntakePanel />
 
+    <div class="welcome-strip">
+      <div class="welcome-text">
+        <h2>欢迎回来，{{ userDisplayName }}</h2>
+        <p>{{ greetingText }} · 案件进度与待办已为您汇总</p>
+      </div>
+      <div class="welcome-kpis">
+        <div class="kpi-item" @click="router.push('/case/list')">
+          <span class="kpi-num">{{ stats[0]?.value ?? 0 }}</span>
+          <span class="kpi-label">本月案件</span>
+        </div>
+        <div class="kpi-item" @click="router.push('/calendar')">
+          <span class="kpi-num">{{ stats[3]?.value ?? 0 }}</span>
+          <span class="kpi-label">待办</span>
+        </div>
+      </div>
+    </div>
+
     <!-- 统计卡片区 -->
     <div class="stats-cards">
       <div
@@ -357,6 +374,17 @@ import { useUserStore } from '@/stores'
 import AIAssistant from '@/views/ai/assistant.vue'
 const userStore = useUserStore()
 const router = useRouter()
+
+const userDisplayName = computed(
+  () => userStore.userInfo?.realName || userStore.userInfo?.username || '用户'
+)
+
+const greetingText = computed(() => {
+  const h = new Date().getHours()
+  if (h < 12) return '早上好'
+  if (h < 18) return '下午好'
+  return '晚上好'
+})
 
 // 组件挂载状态标记，防止内存泄漏
 const isMounted = ref(true)
@@ -877,6 +905,64 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .dashboard {
+  .welcome-strip {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding: 20px 24px;
+    background: linear-gradient(135deg, #eef3fc 0%, #f8fafc 100%);
+    border: 1px solid var(--lawos-border, rgba(15, 23, 42, 0.08));
+    border-radius: var(--lawos-radius-lg, 12px);
+    box-shadow: var(--lawos-shadow-sm);
+
+    .welcome-text {
+      h2 {
+        margin: 0 0 6px;
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--lawos-text, #1c1c1e);
+      }
+
+      p {
+        margin: 0;
+        font-size: 14px;
+        color: var(--lawos-text-secondary, #6b7280);
+      }
+    }
+
+    .welcome-kpis {
+      display: flex;
+      gap: 24px;
+
+      .kpi-item {
+        cursor: pointer;
+        text-align: center;
+        padding: 8px 16px;
+        border-radius: var(--lawos-radius-md, 8px);
+        transition: background 0.2s;
+
+        &:hover {
+          background: rgba(59, 111, 217, 0.08);
+        }
+
+        .kpi-num {
+          display: block;
+          font-size: 24px;
+          font-weight: 700;
+          color: var(--lawos-primary, #3b6fd9);
+        }
+
+        .kpi-label {
+          font-size: 12px;
+          color: var(--lawos-text-secondary, #6b7280);
+        }
+      }
+    }
+  }
+
   .stats-cards {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -973,8 +1059,8 @@ onUnmounted(() => {
       }
 
       &.stat-primary .stat-icon {
-        background-color: #e6f7ff;
-        color: #1890ff;
+        background-color: var(--lawos-primary-light-9, #eef3fc);
+        color: var(--lawos-primary, #3b6fd9);
       }
 
       &.stat-success .stat-icon {
@@ -1012,8 +1098,9 @@ onUnmounted(() => {
     gap: 20px;
 
     .ai-upload-section {
-      background: linear-gradient(135deg, #8e9eab 0%, #eef2f3 100%);
-      border-radius: 8px;
+      background: linear-gradient(135deg, #eef3fc 0%, #f8fafc 100%);
+      border: 1px solid var(--lawos-border, rgba(15, 23, 42, 0.08));
+      border-radius: var(--lawos-radius-lg, 12px);
       padding: 20px;
 
       .section-header {

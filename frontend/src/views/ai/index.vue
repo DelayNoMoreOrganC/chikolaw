@@ -296,11 +296,25 @@
         </div>
       </div>
     </div>
+
+    <el-dialog
+      v-model="docPreviewVisible"
+      :title="docPreviewTitle"
+      width="720px"
+      destroy-on-close
+    >
+      <pre class="doc-preview-body">{{ docPreviewContent }}</pre>
+      <template #footer>
+        <el-button @click="docPreviewVisible = false">关闭</el-button>
+        <el-button v-if="generatedDoc" type="primary" @click="downloadDoc">下载</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElNotification } from 'element-plus'
 import {
   UploadFilled,
@@ -320,8 +334,11 @@ import {
   formatAiFunctionType
 } from '@/config/ai-terminology'
 
+const router = useRouter()
 const userStore = useUserStore()
 const userName = computed(() => userStore.userInfo?.realName || '用户')
+
+const CASE_CREATE_PREFILL_KEY = 'case_create_prefill'
 
 // AI功能列表
 const documentTypeOptions = getDocumentTypeOptions(true)
@@ -376,6 +393,16 @@ const docForm = reactive({
 })
 const isGenerating = ref(false)
 const generatedDoc = ref('')
+const docPreviewVisible = ref(false)
+const docPreviewContent = ref('')
+const docPreviewTitle = ref('文书预览')
+
+const CASE_TYPE_LABELS = {
+  civil: '民事纠纷',
+  commercial: '商事纠纷',
+  criminal: '刑事案件',
+  administrative: '行政案件'
+}
 
 // 问答相关
 const chatMessages = ref([])
@@ -468,7 +495,30 @@ const processFile = async (file) => {
 }
 
 const createCaseFromRecognition = () => {
-  ElMessage.info('即将跳转到案件创建页面...')
+  if (!ocrResult.value) {
+    ElMessage.warning('请先完成文书识别')
+    return
+  }
+  const r = ocrResult.value
+  const prefill = {
+    source: 'ai_recognition',
+    caseReason: r.caseCause || '',
+    court: r.court || '',
+    courtCaseNumber: r.caseNumber || '',
+    caseName: r.caseCause
+      ? `${r.caseCause}${r.caseNature ? `（${r.caseNature}）` : ''}`
+      : r.caseNature || '新案件',
+    summary: [
+      r.documentType && `文书类型：${r.documentType}`,
+      r.parties && `当事人：${r.parties}`,
+      r.caseNature && `案件性质：${r.caseNature}`
+    ]
+      .filter(Boolean)
+      .join('\n'),
+    partiesText: r.parties || ''
+  }
+  sessionStorage.setItem(CASE_CREATE_PREFILL_KEY, JSON.stringify(prefill))
+  router.push({ path: '/case/create', query: { from: 'ai_recognition' } })
 }
 
 const clearRecognitionResult = () => {
@@ -509,8 +559,36 @@ const generateDocument = async () => {
   }
 }
 
+const buildDocDraftPreview = () => {
+  const typeLabel =
+    documentTypeOptions.find((o) => o.value === docForm.templateType)?.label ||
+    docForm.templateType ||
+    '法律文书'
+  const caseLabel = CASE_TYPE_LABELS[docForm.caseType] || docForm.caseType || '未选择'
+  return [
+    `${typeLabel}`,
+    `案件类型：${caseLabel}`,
+    '',
+    '—— 关键信息 ——',
+    '',
+    docForm.keyInfo.trim()
+  ].join('\n')
+}
+
 const previewDocument = () => {
-  ElMessage.info('预览功能开发中...')
+  if (generatedDoc.value) {
+    docPreviewTitle.value = '文书预览（已生成）'
+    docPreviewContent.value = generatedDoc.value
+    docPreviewVisible.value = true
+    return
+  }
+  if (!docForm.keyInfo?.trim()) {
+    ElMessage.warning('请先填写关键信息，或先生成文书')
+    return
+  }
+  docPreviewTitle.value = '文书预览（草稿）'
+  docPreviewContent.value = buildDocDraftPreview()
+  docPreviewVisible.value = true
 }
 
 const downloadDoc = () => {
@@ -807,8 +885,9 @@ onMounted(() => {
 .stat-card {
   display: flex;
   align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  background: linear-gradient(135deg, #eef3fc 0%, #dce8f8 100%);
+  color: var(--lawos-text, #1c1c1e);
+  border: 1px solid var(--lawos-border, rgba(15, 23, 42, 0.08));
   padding: 20px;
   border-radius: 8px;
   margin-bottom: 10px;
@@ -843,5 +922,19 @@ onMounted(() => {
   margin-top: 15px;
   display: flex;
   gap: 10px;
+}
+
+.doc-preview-body {
+  margin: 0;
+  padding: 12px;
+  max-height: 60vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  background: #f5f7fa;
+  border-radius: 6px;
 }
 </style>

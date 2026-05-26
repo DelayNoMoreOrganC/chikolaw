@@ -567,7 +567,8 @@ onMounted(() => {
     margin-bottom: 30px;
 
     .finance-card {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: linear-gradient(135deg, #eef3fc 0%, #dce8f8 100%);
+      color: var(--lawos-text, #1c1c1e);
       color: #fff;
       padding: 24px;
       border-radius: 12px;
