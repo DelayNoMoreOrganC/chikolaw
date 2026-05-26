@@ -1,7 +1,7 @@
 # 律所管理系统
 
-**版本**：v2.0.3
-**更新时间**：2026-05-04
+**版本**：v2.1.0
+**更新时间**：2026-05-07
 **状态**：🟢 生产就绪
 
 ## 快速开始
@@ -18,7 +18,9 @@
 cd backend
 mvn spring-boot:run
 ```
-访问：http://localhost:8080（admin/admin123）
+访问：http://localhost:8080/api（Swagger：http://localhost:8080/api/swagger-ui.html），默认账号 `admin` / `admin123`。
+
+**环境变量（生产必配）**：`JWT_SECRET`、`CRYPTO_SECRET_KEY`；可选 `LAWFIRM_H2_PATH`（H2 文件路径前缀）、`LAWFIRM_UPLOAD_PATH`、`LAWFIRM_BACKUP_DIR`、`MINIO_*`。本地未设置时使用开发默认值；H2 数据文件位于 `backend/data/`，勿提交到 Git。
 
 **前端**
 ```bash
@@ -39,7 +41,7 @@ npm run dev
 - ✅ **统计报表** - 案件类型、工作量、收费统计
 - ✅ **权限管理** - RBAC角色权限、部门隔离
 
-### 最新优化（v2.0.3）
+### 最新优化（v2.1.0 摘要）
 - 新增业务类型字段（根据案件类型动态变化）
 - 新增犯罪嫌疑人字段（刑事案件专用）
 - 新增涉案标的字段（风险代理必填）

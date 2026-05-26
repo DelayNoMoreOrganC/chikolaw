@@ -21,7 +21,8 @@ spring:
 
   datasource:
     driver-class-name: org.h2.Driver
-    url: jdbc:h2:file:D:/ZGAI/backend/data/lawfirm;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;CHARSET=UTF8
+    # 默认相对路径：在 backend 目录下执行 mvn spring-boot:run 时写入 backend/data/
+    url: jdbc:h2:file:${LAWFIRM_H2_PATH:./data/lawfirm};MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     username: sa
     password:
     hikari:
@@ -76,22 +77,22 @@ springdoc:
   show-actuator: false
 
 jwt:
-  secret: lawfirm-secret-key-2024-spring-boot-jwt-authentication
+  secret: ${JWT_SECRET:lawfirm-dev-jwt-secret-change-me}
   expiration: 86400000
   header: Authorization
   prefix: Bearer
 
 minio:
-  endpoint: http://localhost:9000
-  accessKey: minioadmin
-  secretKey: minioadmin
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  accessKey: ${MINIO_ACCESS_KEY:minioadmin}
+  secretKey: ${MINIO_SECRET_KEY:minioadmin}
   bucketName: lawfirm
   connectTimeout: 10000
   writeTimeout: 60000
   readTimeout: 10000
 
 file:
-  upload-path: D:/ZGAI/uploads/
+  upload-path: ${LAWFIRM_UPLOAD_PATH:./uploads/}
   max-size: 52428800
   allowed-types:
     - image/jpeg
@@ -109,11 +110,11 @@ login:
   lock-duration: 1800000
 
 backup:
-  base-dir: D:/lawfirm/backups
+  base-dir: ${LAWFIRM_BACKUP_DIR:./backups}
   retention-days: 180
 
 crypto:
-  secret-key: lawfirm-secret-key-2024-aes-256-encryption
+  secret-key: ${CRYPTO_SECRET_KEY:lawfirm-dev-crypto-secret-change-me}
 
 ai:
   deepseek:

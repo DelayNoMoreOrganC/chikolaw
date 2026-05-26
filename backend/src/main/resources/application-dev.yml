@@ -13,7 +13,7 @@ spring:
   # H2文件数据库配置（持久化存储）
   datasource:
     driver-class-name: org.h2.Driver
-    url: jdbc:h2:file:./data/lawfirm;MODE=MySQL;DB_CLOSE_ON_EXIT=FALSE
+    url: jdbc:h2:file:${LAWFIRM_H2_PATH:./data/lawfirm};MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     username: sa
     password:
     hikari:
@@ -57,18 +57,18 @@ spring:
       max-file-size: 50MB
       max-request-size: 50MB
 
-# JWT配置
+# JWT配置（生产环境务必设置环境变量 JWT_SECRET）
 jwt:
-  secret: lawfirm-secret-key-2024-spring-boot-jwt-authentication
+  secret: ${JWT_SECRET:lawfirm-dev-jwt-secret-change-me}
   expiration: 86400000  # 24小时 (毫秒)
   header: Authorization
   prefix: Bearer
 
 # MinIO配置（开发环境可以注释）
 minio:
-  endpoint: http://localhost:9000
-  accessKey: minioadmin
-  secretKey: minioadmin
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  accessKey: ${MINIO_ACCESS_KEY:minioadmin}
+  secretKey: ${MINIO_SECRET_KEY:minioadmin}
   bucketName: lawfirm
   connectTimeout: 10000
   writeTimeout: 60000
@@ -76,7 +76,7 @@ minio:
 
 # 文件上传配置
 file:
-  upload-path: D:/ZGAI/uploads/
+  upload-path: ${LAWFIRM_UPLOAD_PATH:./uploads/}
   max-size: 52428800  # 50MB
   allowed-types:
     - image/jpeg
