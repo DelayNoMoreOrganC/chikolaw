@@ -17,6 +17,14 @@ export function getCaseDetail(id) {
   })
 }
 
+/** LLM 案件分析 */
+export function analyzeCaseById(id) {
+  return request({
+    url: `/cases/${id}/ai-analysis`,
+    method: 'get'
+  })
+}
+
 // 创建案件
 export function createCase(data) {
   return request({
@@ -57,10 +65,22 @@ export function deleteCase(id) {
   })
 }
 
-// 更新案件状态
+// 更新案件状态（阶段前进）
 export function updateCaseStatus(id, data) {
   return request({
     url: `/cases/${id}/status`,
+    method: 'put',
+    data: {
+      targetStage: data.status,
+      reason: data.reason || ''
+    }
+  })
+}
+
+// 回退案件阶段
+export function rollbackCaseStatus(id, data) {
+  return request({
+    url: `/cases/${id}/status/rollback`,
     method: 'put',
     data: {
       targetStage: data.status,
@@ -284,6 +304,15 @@ export function getDocumentsByType(caseId, documentType) {
 export function downloadCaseDocument(caseId, docId) {
   return request({
     url: `/cases/${caseId}/documents/${docId}/download`,
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
+// 在线预览（inline）
+export function previewCaseDocument(caseId, docId) {
+  return request({
+    url: `/cases/${caseId}/documents/${docId}/preview`,
     method: 'get',
     responseType: 'blob'
   })
@@ -547,12 +576,31 @@ export function checkPartyConflict(parties) {
   })
 }
 
+function mapPartiesForConflict(parties) {
+  const partyTypeMap = { 个人: 'INDIVIDUAL', 单位: 'ORGANIZATION' }
+  const partyRoleMap = {
+    原告: 'PLAINTIFF',
+    被告: 'DEFENDANT',
+    申请人: 'APPLICANT',
+    被申请人: 'RESPONDENT',
+    第三人: 'THIRD_PARTY'
+  }
+  return (parties || []).map((p) => ({
+    partyType: partyTypeMap[p.type] || p.type || 'INDIVIDUAL',
+    partyRole: partyRoleMap[p.attribute] || p.attribute || 'PLAINTIFF',
+    name: p.name,
+    phone: p.phone || null,
+    address: p.address || null,
+    isClient: !!p.isClient
+  }))
+}
+
 // 综合利益冲突检查
 export function comprehensiveConflictCheck(parties) {
   return request({
     url: '/conflict-check/comprehensive',
     method: 'post',
-    data: parties
+    data: mapPartiesForConflict(parties)
   })
 }
 

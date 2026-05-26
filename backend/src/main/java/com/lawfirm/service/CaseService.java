@@ -47,6 +47,7 @@ public class CaseService {
     private final RoleRepository roleRepository;
     private final FinanceRecordService financeRecordService;
     private final CaseFlowTemplateRepository caseFlowTemplateRepository;
+    private final CaseFlowDefinitionService caseFlowDefinitionService;
     private final CaseStageTodoTemplateRepository caseStageTodoTemplateRepository;
     private final TodoService todoService;
     private final ClientService clientService;
@@ -708,6 +709,7 @@ public class CaseService {
             case "CRIMINAL": return "刑事";
             case "ADMINISTRATIVE": return "行政";
             case "NON_LITIGATION": return "非诉";
+            case "ADVISORY": return "顾问";
             case "FINANCIAL_NPA": return "金融不良资产";
             default: return type;
         }
@@ -757,6 +759,7 @@ public class CaseService {
             case "CRIMINAL": return "C";
             case "ADMINISTRATIVE": return "A";
             case "NON_LITIGATION": return "N";
+            case "ADVISORY": return "G";
             case "FINANCIAL_NPA": return "FNA";
             default: return "X";
         }
@@ -830,18 +833,17 @@ public class CaseService {
             // 2. 使用第一个匹配的模板（如果有多个模板，后续可以增加选择逻辑）
             CaseFlowTemplate template = templates.get(0);
 
-            // 3. 查找该模板下的所有待办模板
+            String firstStage = caseFlowDefinitionService.getFirstStageName(caseEntity.getCaseType());
             List<CaseStageTodoTemplate> todoTemplates = caseStageTodoTemplateRepository
-                    .findByFlowTemplateIdAndDeletedFalseOrderByStageOrderAscSortOrderAsc(
-                            template.getId()
-                    );
+                    .findByFlowTemplateIdAndStageNameAndDeletedFalseOrderBySortOrderAsc(
+                            template.getId(), firstStage);
 
             if (todoTemplates.isEmpty()) {
-                log.info("流程模板 {} 没有配置待办事项模板", template.getTemplateName());
+                log.info("流程模板 {} 首阶段 {} 无待办模板，跳过建案待办", template.getTemplateName(), firstStage);
                 return;
             }
 
-            // 4. 为每个待办模板创建实际的待办记录
+            // 仅为首阶段（当前阶段）创建待办，后续阶段在阶段变更时生成
             int createdCount = 0;
             for (CaseStageTodoTemplate todoTemplate : todoTemplates) {
                 TodoDTO todoDTO = new TodoDTO();
@@ -874,14 +876,13 @@ public class CaseService {
                 }
             }
 
-            log.info("根据流程模板 {} 自动生成了 {} 个待办事项", template.getTemplateName(), createdCount);
+            log.info("建案首阶段「{}」自动生成 {} 个待办", firstStage, createdCount);
 
-            // 5. 记录到案件动态
             if (createdCount > 0) {
                 caseTimelineService.createSystemTimeline(
                         caseEntity.getId(),
                         "AUTO_TODO",
-                        "根据流程模板自动生成了 " + createdCount + " 个待办事项"
+                        "建案首阶段「" + firstStage + "」自动生成 " + createdCount + " 个待办"
                 );
             }
 

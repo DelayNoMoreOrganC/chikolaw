@@ -74,8 +74,8 @@ const loading = ref(false)
 const rememberMe = ref(false)
 
 const loginForm = reactive({
-  username: '',
-  password: ''
+  username: import.meta.env.DEV ? 'admin' : '',
+  password: import.meta.env.DEV ? 'admin123' : ''
 })
 
 const loginRules = {
@@ -93,6 +93,9 @@ const handleLogin = async () => {
   try {
     await loginFormRef.value?.validate()
     loading.value = true
+
+    // 丢弃本地旧 Token（例如后端 JWT_SECRET 变更后），避免进主界面后首屏请求全部 401
+    userStore.clearLocalAuth()
 
     await userStore.login(loginForm)
 

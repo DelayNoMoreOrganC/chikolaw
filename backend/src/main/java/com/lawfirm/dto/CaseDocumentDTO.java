@@ -21,6 +21,8 @@ public class CaseDocumentDTO {
     private String uploadByName;
     private String tags;
     private String ocrResult;
+    private Integer versionNo;
+    private String contentType;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 

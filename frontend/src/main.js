@@ -6,6 +6,7 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import router from './router'
 import pinia from './stores'
 import App from './App.vue'
+import { autoLogin } from './utils/dev-auto-login'
 
 const app = createApp(App)
 
@@ -17,7 +18,12 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 app.use(ElementPlus, {
   locale: zhCn
 })
-app.use(router)
 app.use(pinia)
+app.use(router)
 
-app.mount('#app')
+async function bootstrap() {
+  await autoLogin()
+  app.mount('#app')
+}
+
+bootstrap()

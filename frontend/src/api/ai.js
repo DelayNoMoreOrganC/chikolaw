@@ -1,4 +1,4 @@
-import request, { longTimeoutService } from '@/utils/request'
+import request, { aiHttp } from '@/utils/request'
 
 /**
  * AI文档智能识别
@@ -17,7 +17,7 @@ export function recognizeLegalDocument(file, caseId) {
     formData.append('caseId', caseId)
   }
 
-  return request({
+  return aiHttp({
     url: '/ai/documents/recognize',
     method: 'post',
     data: formData,
@@ -42,7 +42,7 @@ export function recognizeLegalDocumentsBatch(files, caseId) {
     formData.append('caseId', caseId)
   }
 
-  return request({
+  return aiHttp({
     url: '/ai/documents/recognize-batch',
     method: 'post',
     data: formData,
@@ -52,8 +52,11 @@ export function recognizeLegalDocumentsBatch(files, caseId) {
   })
 }
 
-// OCR上传（保留旧接口以兼容）
+/**
+ * @deprecated 请使用 recognizeLegalDocument；/api/ai/ocr-upload 为遗留模拟路径
+ */
 export function ocrUpload(file) {
+  console.warn('[deprecated] ocrUpload：请改用 recognizeLegalDocument')
   return recognizeLegalDocument(file)
 }
 
@@ -81,7 +84,7 @@ export function uploadDocForAIRecognition(file) {
   formData.append('file', file)
 
   // 使用长超时服务（120秒），因为AI识别需要较长时间
-  return longTimeoutService({
+  return aiHttp({
     url: '/ai/documents/recognize',
     method: 'post',
     data: formData,
@@ -101,41 +104,18 @@ export function generateDoc(data) {
   })
 }
 
-// AI对话
+// AI 通用对话（走后端路由与可选云端降级）
 export function aiChat(data) {
-  // 直接调用Ollama API（临时方案，绕过后端数据库问题）
-  return fetch('http://localhost:11434/api/chat', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: 'qwen3:8b',
-      messages: [
-        { role: 'system', content: '你是一个专业的法律助手，帮助律师处理案件、文档和日程管理。' },
-        { role: 'user', content: data.message }
-      ],
-      stream: false
-    })
-  }).then(response => response.json())
-    .then(result => {
-      return {
-        success: true,
-        data: result.message?.content || result.response || 'AI响应为空'
-      }
-    })
-    .catch(error => {
-      console.error('Ollama调用失败:', error)
-      return {
-        success: false,
-        message: 'AI服务暂时不可用'
-      }
-    })
+  return aiHttp({
+    url: '/ai/assist',
+    method: 'post',
+    data: { message: data.message }
+  })
 }
 
 // 案件上下文对话
 export function caseChat(caseId, data) {
-  return request({
+  return aiHttp({
     url: `/ai/case-chat/${caseId}`,
     method: 'post',
     data

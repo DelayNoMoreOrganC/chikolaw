@@ -189,9 +189,19 @@ public class CalendarService {
         dto.setLocation(calendar.getLocation());
         dto.setCaseId(calendar.getCaseId());
 
-        // 加载案件名称
+        // 加载关联案件信息（工作台日历多维筛选）
         if (calendar.getCaseId() != null) {
-            caseRepository.findById(calendar.getCaseId()).ifPresent(c -> dto.setCaseName(c.getCaseName()));
+            caseRepository.findById(calendar.getCaseId()).ifPresent(c -> {
+                dto.setCaseName(c.getCaseName());
+                dto.setCaseType(c.getCaseType());
+                dto.setCaseStatus(c.getStatus());
+                dto.setCourt(c.getCourt());
+                dto.setOwnerId(c.getOwnerId());
+                if (c.getOwnerId() != null) {
+                    userRepository.findById(c.getOwnerId())
+                            .ifPresent(u -> dto.setOwnerName(u.getRealName()));
+                }
+            });
         }
 
         // 加载参与者名称

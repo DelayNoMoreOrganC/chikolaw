@@ -243,6 +243,12 @@
         </div>
       </el-tab-pane>
 
+      <el-tab-pane label="审批流程" name="workflow">
+        <div class="tab-content">
+          <ApprovalWorkflowPanel />
+        </div>
+      </el-tab-pane>
+
       <!-- 数据备份 -->
       <el-tab-pane label="数据备份" name="backup">
         <div class="tab-content">
@@ -465,6 +471,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search, Download, Upload } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
+import ApprovalWorkflowPanel from '@/components/admin/ApprovalWorkflowPanel.vue'
 import { createUser, updateUser, deleteUser, getUserList, toggleUserStatus } from '@/api/user'
 import { getRoleList } from '@/api/role'
 import request from '@/utils/request'
@@ -659,22 +666,34 @@ const systemConfig = reactive({
 })
 
 // 备份列表
-const backupList = ref([
-  {
-    id: '1',
-    filename: 'backup_20240417_020000.sql',
-    size: '256.5 MB',
-    time: '2024-04-17 02:00',
-    type: 'auto'
-  },
-  {
-    id: '2',
-    filename: 'backup_20240416_150000.sql',
-    size: '256.3 MB',
-    time: '2024-04-16 15:00',
-    type: 'manual'
+const backupList = ref([])
+
+const formatFileSize = (bytes) => {
+  if (!bytes) return '-'
+  const mb = bytes / 1024 / 1024
+  return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(bytes / 1024).toFixed(1)} KB`
+}
+
+const loadBackupList = async () => {
+  try {
+    const res = await request({ url: '/system/backups', method: 'get' })
+    const list = res.data || []
+    backupList.value = list.map((b) => ({
+      id: b.id,
+      filename: b.filePath ? b.filePath.split(/[/\\]/).pop() : `backup_${b.id}`,
+      size: formatFileSize(b.fileSize),
+      time: b.backupTime ? new Date(b.backupTime).toLocaleString('zh-CN') : '',
+      type: b.backupType === 'AUTO' ? 'auto' : 'manual',
+      status: b.backupStatus
+    }))
+    if (backupList.value.length) {
+      lastBackupTime.value = backupList.value[0].time
+      backupSize.value = backupList.value[0].size
+    }
+  } catch (e) {
+    console.error('加载备份列表失败', e)
   }
-])
+}
 
 // 用户操作
 const handleCreateUser = () => {
@@ -767,6 +786,7 @@ const loadRoles = async () => {
 onMounted(() => {
   loadUsers()
   loadRoles()
+  loadBackupList()
 })
 
 const loadUsers = async () => {
@@ -984,12 +1004,11 @@ const handleResetConfig = async () => {
 const handleBackupNow = async () => {
   try {
     backingUp.value = true
-    // 模拟备份
-    await new Promise(resolve => setTimeout(resolve, 2000))
+    await request({ url: '/system/backup', method: 'post', params: { remark: '手动备份' } })
     ElMessage.success('备份完成')
-    lastBackupTime.value = new Date().toLocaleString('zh-CN')
-  } catch {
-    ElMessage.error('备份失败')
+    await loadBackupList()
+  } catch (e) {
+    ElMessage.error(e.message || '备份失败')
   } finally {
     backingUp.value = false
   }
@@ -1028,7 +1047,7 @@ const handleRestoreBackup = async (backup) => {
     )
 
     await request({
-      url: `/backup/restore/${backup.id}`,
+      url: `/system/restore/${backup.id}`,
       method: 'post'
     })
 
@@ -1057,7 +1076,7 @@ const handleDeleteBackup = async (backup) => {
     )
 
     await request({
-      url: `/backup/backup/${backup.id}`,
+      url: `/system/backup/${backup.id}`,
       method: 'delete'
     })
 

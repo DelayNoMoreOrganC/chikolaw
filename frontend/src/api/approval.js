@@ -65,6 +65,14 @@ export function withdrawApproval(id) {
 export function urgeApproval(id) {
   return request({
     url: `/approval/${id}/urge`,
-    method: 'post'
+    method: 'put'
+  })
+}
+
+// 审批类型（与后端枚举一致）
+export function getApprovalTypes() {
+  return request({
+    url: '/approval/types',
+    method: 'get'
   })
 }

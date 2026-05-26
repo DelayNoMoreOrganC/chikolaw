@@ -6,13 +6,15 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "npm run build"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
     "@vueup/vue-quill": "^1.2.0",
     "axios": "^1.15.0",
     "dayjs": "^1.11.20",
+    "lodash-es": "^4.17.21",
     "echarts": "^6.0.0",
     "element-plus": "^2.13.7",
     "pinia": "^3.0.4",

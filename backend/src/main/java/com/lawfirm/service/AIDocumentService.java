@@ -2,19 +2,22 @@ package com.lawfirm.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lawfirm.dto.AIDocumentRecognitionResult;
-import com.lawfirm.dto.AIConfigDTO;
 import com.lawfirm.entity.AIConfig;
+import com.lawfirm.enums.AIFunctionType;
+import com.lawfirm.enums.AIModelUseCase;
 import com.lawfirm.exception.AIServiceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.HashMap;
-import java.util.Map;
+import javax.imageio.ImageIO;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.util.Base64;
 
 /**
  * AI文档智能识别服务
@@ -25,9 +28,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AIDocumentService {
 
-    private final AIConfigService aiConfigService;
+    private final AIModelRoutingService aimodelRoutingService;
     private final AILogService aiLogService;
-    private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final DocumentBusinessLogicHandler businessLogicHandler;
     private final LLMApiService llmApiService;
@@ -38,72 +40,70 @@ public class AIDocumentService {
     @Value("${ai.ocr.provider:tesseract}")
     private String ocrProvider;
 
+    @Value("${ai.ocr.pdf-vision-max-pages:5}")
+    private int pdfVisionMaxPages;
+
+    @Value("${ai.ocr.pdf-vision-dpi:120}")
+    private int pdfVisionDpi;
+
     /**
-     * 智能识别法院文书（带业务逻辑执行）
-     * 完整流程：上传→OCR识别→LLM要素提取→业务逻辑执行→返回结果
+     * 智能识别法院文书（默认执行业务侧效：待办/建案等）。
      */
     public AIDocumentRecognitionResult recognizeLegalDocument(MultipartFile file, Long userId, Long caseId) {
+        return recognizeLegalDocument(file, userId, caseId, true);
+    }
+
+    /**
+     * 智能识别法院文书。
+     *
+     * @param executeBusinessLogic false 时仅 OCR+要素提取（卷宗录入由 {@link CaseFileIntakeService} 统一归档后再决定是否自动化）
+     */
+    public AIDocumentRecognitionResult recognizeLegalDocument(MultipartFile file, Long userId, Long caseId,
+                                                            boolean executeBusinessLogic) {
         long startTime = System.currentTimeMillis();
+        AIConfig aiConfig = null;
+        String modelName = "";
 
         try {
-            // 1. 获取AI配置（如果数据库没有配置，使用默认Ollama配置）
-            AIConfig aiConfig;
             try {
-                aiConfig = aiConfigService.getDefaultConfig();
+                aiConfig = aimodelRoutingService.resolveForUseCase(AIModelUseCase.DOCUMENT_RECOGNITION_EXTRACT);
             } catch (Exception e) {
-                log.warn("数据库中没有默认AI配置，使用默认Ollama配置: {}", e.getMessage());
+                log.warn("文档识别抽取场景无可用 AI 配置，使用默认 Ollama 占位: {}", e.getMessage());
                 aiConfig = createDefaultOllamaConfig();
             }
+            modelName = aiConfig.getModelName() != null ? aiConfig.getModelName() : aiConfig.getProviderType();
 
-            // 2. OCR识别
             String ocrText = performOCR(file);
             log.info("OCR识别完成，文本长度: {}", ocrText.length());
 
-            // 3. LLM要素提取
             AIDocumentRecognitionResult result = extractLegalInfo(ocrText, aiConfig);
+            result.setOcrText(ocrText);
 
-            // 4. 执行业务逻辑（根据文书类型）
-            if (result.getDocumentType() != null && !result.getDocumentType().isEmpty()) {
+            if (executeBusinessLogic
+                    && result.getDocumentType() != null && !result.getDocumentType().isEmpty()) {
                 executeBusinessLogic(result, userId);
             }
 
-            // 5. 记录处理时间
             result.setProcessingTime(System.currentTimeMillis() - startTime);
 
-            // 6. 记录AI使用日志
-            // TODO: 实现AI功能后启用日志记录
-            /*
-            aiLogService.logUsage(
-                    userId,
-                    caseId,
-                    "DOCUMENT_RECOGNITION",
-                    ocrText.length(),
-                    objectMapper.writeValueAsString(result).length(),
-                    aiConfig.getModelName(),
-                    "SUCCESS",
-                    result.getProcessingTime()
-            );
-            */
+            int duration = (int) (System.currentTimeMillis() - startTime);
+            String inputBrief = "file=" + (file.getOriginalFilename() != null ? file.getOriginalFilename() : "")
+                    + " size=" + file.getSize() + " ocrLen=" + ocrText.length();
+            String outBrief = result.getDocumentType() != null
+                    ? "docType=" + result.getDocumentType()
+                    : "extracted";
+            aiLogService.log(userId, caseId, AIFunctionType.OCR_RECOGNITION,
+                    inputBrief, null, outBrief, null, modelName, "SUCCESS", duration, null);
 
             return result;
 
         } catch (Exception e) {
             log.error("文档识别失败", e);
-
-            // 记录失败日志
-            // TODO: 实现AI功能后启用日志记录
-            /*
-            aiLogService.logUsage(
-                    userId,
-                    caseId,
-                    "DOCUMENT_RECOGNITION",
-                    0,
-                    0,
-                    "unknown",
-                    "FAILED",
-                    System.currentTimeMillis() - startTime
-            );
-            */
+            int duration = (int) (System.currentTimeMillis() - startTime);
+            String inputBrief = "file=" + (file.getOriginalFilename() != null ? file.getOriginalFilename() : "")
+                    + " size=" + file.getSize();
+            aiLogService.log(userId, caseId, AIFunctionType.OCR_RECOGNITION,
+                    inputBrief, null, null, null, modelName, "FAILED", duration, e.getMessage());
 
             throw new AIServiceException("文档识别失败: " + e.getMessage(), e);
         }
@@ -215,31 +215,28 @@ public class AIDocumentService {
         log.info("开始使用DeepSeek Vision API进行OCR识别，文件名: {}, 大小: {}", file.getOriginalFilename(), file.getSize());
 
         try {
-            // 1. 检查文件类型
             String contentType = file.getContentType();
-            if (contentType == null || (!contentType.startsWith("image/") && !contentType.equals("application/pdf"))) {
-                // 如果是PDF，先尝试提取文本
-                if (file.getOriginalFilename() != null && file.getOriginalFilename().toLowerCase().endsWith(".pdf")) {
-                    return extractTextFromPDF(file);
-                }
+            boolean isPdf = "application/pdf".equals(contentType)
+                    || (file.getOriginalFilename() != null
+                    && file.getOriginalFilename().toLowerCase().endsWith(".pdf"));
+
+            if (!isPdf && (contentType == null || !contentType.startsWith("image/"))) {
                 throw new AIServiceException("不支持的文件类型，仅支持图片和PDF");
             }
 
-            // 2. 对于PDF文件，先尝试提取文本层
-            if (contentType.equals("application/pdf")) {
+            if (isPdf) {
                 String pdfText = extractTextFromPDF(file);
                 if (pdfText != null && pdfText.trim().length() > 100) {
                     log.info("PDF文本层提取成功，文本长度: {}", pdfText.length());
                     return pdfText;
                 }
-                log.warn("PDF文本层提取失败或文本太少，尝试使用Vision API");
-                // TODO: 实现将PDF转换为图片后调用Vision API
-                throw new AIServiceException("扫描版PDF暂不支持，请使用有文本层的PDF或图片格式");
+                log.warn("PDF 文本层不足（长度 {}），分页渲染后调用 Vision",
+                        pdfText == null ? 0 : pdfText.trim().length());
+                return visionOcrPdfPages(file);
             }
 
-            // 3. 转换图片为Base64
             byte[] imageBytes = file.getBytes();
-            String base64Image = java.util.Base64.getEncoder().encodeToString(imageBytes);
+            String base64Image = Base64.getEncoder().encodeToString(imageBytes);
             log.debug("图片已转换为Base64，长度: {}", base64Image.length());
 
             // 4. 构建OCR提示词
@@ -263,6 +260,61 @@ public class AIDocumentService {
             log.error("DeepSeek Vision API调用失败", e);
             throw new AIServiceException("DeepSeek Vision API调用失败: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * 将 PDF 前若干页渲染为图片并逐页调用 Vision OCR（扫描件）
+     */
+    private String visionOcrPdfPages(MultipartFile file) throws Exception {
+        String ocrPrompt = "请仔细识别图片中的所有文字内容，包括中文、英文、数字、标点符号等。" +
+                "如果是法律文书，请特别注意：\n" +
+                "1. 案号的准确性\n" +
+                "2. 当事人姓名、公司名称\n" +
+                "3. 日期格式\n" +
+                "4. 金额数字\n" +
+                "5. 法律条文引用\n\n" +
+                "请按照原文的格式和排版输出识别结果，保持段落结构和换行。";
+
+        try (org.apache.pdfbox.pdmodel.PDDocument document =
+                     org.apache.pdfbox.pdmodel.PDDocument.load(file.getInputStream())) {
+            org.apache.pdfbox.rendering.PDFRenderer renderer =
+                    new org.apache.pdfbox.rendering.PDFRenderer(document);
+            int total = document.getNumberOfPages();
+            if (total <= 0) {
+                throw new AIServiceException("PDF 无页面可读");
+            }
+            int maxPages = Math.min(total, Math.max(1, pdfVisionMaxPages));
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < maxPages; i++) {
+                BufferedImage img = renderer.renderImageWithDPI(i, pdfVisionDpi);
+                img = limitImageWidth(img, 2048);
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ImageIO.write(img, "png", baos);
+                String b64 = Base64.getEncoder().encodeToString(baos.toByteArray());
+                log.info("Vision OCR PDF 第 {}/{} 页，编码长度 {}", i + 1, maxPages, b64.length());
+                String part = llmApiService.visionWithDeepSeek(ocrPrompt, b64);
+                sb.append("---第").append(i + 1).append("页---\n").append(part).append("\n\n");
+            }
+            if (total > maxPages) {
+                sb.append("\n（仅识别前 ").append(maxPages).append(" 页，共 ").append(total).append(" 页）\n");
+            }
+            return sb.toString().trim();
+        }
+    }
+
+    private static BufferedImage limitImageWidth(BufferedImage src, int maxWidth) {
+        if (src.getWidth() <= maxWidth) {
+            return src;
+        }
+        double scale = (double) maxWidth / src.getWidth();
+        int w = maxWidth;
+        int h = Math.max(1, (int) Math.round(src.getHeight() * scale));
+        BufferedImage scaled = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = scaled.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.drawImage(src, 0, 0, w, h, null);
+        g.dispose();
+        return scaled;
     }
 
     /**
@@ -293,11 +345,7 @@ public class AIDocumentService {
      */
     private AIDocumentRecognitionResult extractLegalInfo(String ocrText, AIConfig aiConfig) throws Exception {
         String prompt = buildExtractionPrompt(ocrText);
-
-        // 调用LLM API
-        String llmResponse = callLLM(prompt, aiConfig);
-
-        // 解析LLM返回的JSON
+        String llmResponse = llmApiService.chatWithConfig(prompt, null, aiConfig);
         return parseLLMResponse(llmResponse);
     }
 
@@ -352,9 +400,24 @@ public class AIDocumentService {
     }
 
     /**
+     * 从已提取的纯文本做要素识别（Word/TXT 等）。
+     */
+    public AIDocumentRecognitionResult recognizeFromText(String text, Long userId, Long caseId) throws Exception {
+        AIConfig aiConfig;
+        try {
+            aiConfig = aimodelRoutingService.resolveForUseCase(AIModelUseCase.DOCUMENT_RECOGNITION_EXTRACT);
+        } catch (Exception e) {
+            aiConfig = createDefaultOllamaConfig();
+        }
+        AIDocumentRecognitionResult result = extractLegalInfo(text, aiConfig);
+        result.setOcrText(text);
+        return result;
+    }
+
+    /**
      * 执行业务逻辑（根据文书类型路由）
      */
-    private void executeBusinessLogic(AIDocumentRecognitionResult result, Long userId) {
+    public void executeBusinessLogic(AIDocumentRecognitionResult result, Long userId) {
         String docType = result.getDocumentType();
 
         if (docType == null || docType.isEmpty()) {
@@ -394,152 +457,6 @@ public class AIDocumentService {
             log.error("执行业务逻辑失败: 文书类型={}", docType, e);
             // 不抛出异常，避免影响识别结果返回
             // 前端可以根据 businessLogicExecuted 标志判断是否需要手动处理
-        }
-    }
-
-    /**
-     * 调用LLM API
-     */
-    private String callLLM(String prompt, AIConfig aiConfig) throws Exception {
-        String provider = aiConfig.getProviderType().toLowerCase();
-
-        switch (provider) {
-            case "deepseek":
-                return callDeepSeekAPI(prompt, aiConfig);
-            case "openai":
-                return callOpenAIAPI(prompt, aiConfig);
-            case "qwen":
-                return callQwenAPI(prompt, aiConfig);
-            case "ollama":
-                return callOllamaAPI(prompt, aiConfig);
-            default:
-                throw new AIServiceException("不支持的LLM提供商: " + provider);
-        }
-    }
-
-    /**
-     * 调用DeepSeek API
-     */
-    private String callDeepSeekAPI(String prompt, AIConfig config) throws Exception {
-        String url = "https://api.deepseek.com/v1/chat/completions";
-
-        // 构建请求体
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", config.getModelName());
-        requestBody.put("messages", new Object[]{
-                new HashMap<String, String>() {{
-                    put("role", "user");
-                    put("content", prompt);
-                }}
-        });
-        requestBody.put("temperature", 0.1);
-        requestBody.put("max_tokens", 2000);
-
-        // 设置请求头
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(config.getApiKey());
-
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-
-        // 发送请求
-        ResponseEntity<String> response = restTemplate.exchange(
-                url,
-                HttpMethod.POST,
-                entity,
-                String.class
-        );
-
-        if (response.getStatusCode() == HttpStatus.OK) {
-            // 解析响应，提取content
-            Map<String, Object> responseBody = objectMapper.readValue(response.getBody(), Map.class);
-            Map<String, Object> choices = ((java.util.List<Map<String, Object>>) responseBody.get("choices")).get(0);
-            Map<String, Object> message = (Map<String, Object>) choices.get("message");
-            return (String) message.get("content");
-        } else {
-            throw new AIServiceException("DeepSeek API调用失败: " + response.getStatusCode());
-        }
-    }
-
-    /**
-     * 调用OpenAI API
-     */
-    private String callOpenAIAPI(String prompt, AIConfig config) throws Exception {
-        // TODO: 实现OpenAI API调用
-        log.warn("OpenAI API尚未实现");
-        return "";
-    }
-
-    /**
-     * 调用通义千问API
-     */
-    private String callQwenAPI(String prompt, AIConfig config) throws Exception {
-        // TODO: 实现通义千问API调用
-        log.warn("通义千问API尚未实现");
-        return "";
-    }
-
-    /**
-     * 调用本地Ollama API
-     * Ollama是一个开源的大语言模型运行工具
-     */
-    private String callOllamaAPI(String prompt, AIConfig config) throws Exception {
-        // 构建Ollama API URL，默认使用localhost:11434
-        String baseUrl = config.getApiUrl() != null && !config.getApiUrl().isEmpty()
-                ? config.getApiUrl()
-                : "http://localhost:11434";
-        String url = baseUrl + "/api/chat";
-
-        // 构建请求体 - Ollama使用特定的API格式
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", config.getModelName() != null && !config.getModelName().isEmpty()
-                ? config.getModelName()
-                : "qwen2.5"); // 默认使用qwen2.5模型
-        requestBody.put("stream", false); // 不使用流式响应
-        requestBody.put("options", new HashMap<String, Object>() {{
-            put("temperature", config.getTemperature() != null ? config.getTemperature() : 0.1);
-            put("num_predict", config.getMaxTokens() != null ? config.getMaxTokens() : 2000);
-        }});
-        requestBody.put("messages", new Object[]{
-                new HashMap<String, String>() {{
-                    put("role", "user");
-                    put("content", prompt);
-                }}
-        });
-
-        // 设置请求头 - Ollama不需要API Key
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-
-        try {
-            log.info("调用Ollama API: {}, 模型: {}", url, requestBody.get("model"));
-
-            // 发送请求
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url,
-                    HttpMethod.POST,
-                    entity,
-                    String.class
-            );
-
-            if (response.getStatusCode() == HttpStatus.OK) {
-                // 解析响应，提取content
-                Map<String, Object> responseBody = objectMapper.readValue(response.getBody(), Map.class);
-
-                // Ollama的响应格式: {"model": "...", "created_at": "...", "message": {"role": "...", "content": "..."}, "done": true}
-                Map<String, Object> message = (Map<String, Object>) responseBody.get("message");
-                String content = (String) message.get("content");
-
-                log.info("Ollama API调用成功，返回内容长度: {}", content.length());
-                return content;
-            } else {
-                throw new AIServiceException("Ollama API调用失败: " + response.getStatusCode());
-            }
-        } catch (Exception e) {
-            log.error("调用Ollama API失败", e);
-            throw new AIServiceException("调用Ollama API失败: " + e.getMessage(), e);
         }
     }
 

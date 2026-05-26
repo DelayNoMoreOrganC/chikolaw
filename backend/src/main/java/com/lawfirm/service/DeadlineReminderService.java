@@ -24,6 +24,7 @@ public class DeadlineReminderService {
     private final CaseRepository caseRepository;
     private final TodoService todoService;
     private final CaseTimelineService caseTimelineService;
+    private final NotificationService notificationService;
 
     /**
      * 每天早上8点执行审限检查
@@ -94,6 +95,22 @@ public class DeadlineReminderService {
                         // 创建待办
                         todoService.createTodo(todoDTO, caseEntity.getOwnerId());
                         count++;
+
+                        // 同步推送通知中心（PRD 审限提醒统一管道）
+                        if (caseEntity.getOwnerId() != null && caseEntity.getDeadlineDate() != null) {
+                            notificationService.sendCaseDeadlineNotification(
+                                    caseEntity.getId(),
+                                    caseEntity.getCaseName(),
+                                    caseEntity.getDeadlineDate().toString(),
+                                    caseEntity.getOwnerId());
+                            notificationService.sendNotification(
+                                    caseEntity.getOwnerId(),
+                                    "【审限提醒】" + description,
+                                    todoDTO.getDescription(),
+                                    "DEADLINE",
+                                    caseEntity.getId(),
+                                    "Case");
+                        }
 
                         // 记录到案件动态
                         caseTimelineService.createSystemTimeline(

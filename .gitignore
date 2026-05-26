@@ -27,7 +27,9 @@ frontend/.vite/
 # === 日志文件 ===
 *.log
 logs/
+backend/logs/
 *.log.*
+*.log.gz
 
 # === 临时文件 ===
 *.tmp

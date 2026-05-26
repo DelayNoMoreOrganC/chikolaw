@@ -60,6 +60,10 @@ public class CaseDocumentService {
         document.setFileSize(file.getSize());
         document.setFolderPath(folderPath);
         document.setUploadBy(userId);
+        document.setContentType(resolveContentType(file.getContentType(), originalFilename));
+        int nextVersion = caseDocumentRepository.findMaxVersionNo(caseId, newFilename)
+                .map(v -> v + 1).orElse(1);
+        document.setVersionNo(nextVersion);
 
         CaseDocument saved = caseDocumentRepository.save(document);
         log.info("上传案件文档成功: caseId={}, fileName={}, path={}", caseId, newFilename, filePath);
@@ -165,6 +169,33 @@ public class CaseDocumentService {
         return convertToDTO(updated);
     }
 
+    public String resolveContentType(CaseDocument document) {
+        if (document.getContentType() != null && !document.getContentType().isBlank()) {
+            return document.getContentType();
+        }
+        String name = document.getDocumentName();
+        if (name == null) {
+            return "application/octet-stream";
+        }
+        String lower = name.toLowerCase();
+        if (lower.endsWith(".pdf")) {
+            return "application/pdf";
+        }
+        if (lower.endsWith(".png")) {
+            return "image/png";
+        }
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        if (lower.endsWith(".gif")) {
+            return "image/gif";
+        }
+        if (lower.endsWith(".txt")) {
+            return "text/plain;charset=UTF-8";
+        }
+        return "application/octet-stream";
+    }
+
     public InputStream openDocumentStream(Long id) throws IOException {
         CaseDocument document = caseDocumentRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("文档不存在"));
@@ -189,6 +220,8 @@ public class CaseDocumentService {
         dto.setUploadBy(document.getUploadBy());
         dto.setTags(document.getTags());
         dto.setOcrResult(document.getOcrResult());
+        dto.setVersionNo(document.getVersionNo());
+        dto.setContentType(document.getContentType());
         dto.setCreatedAt(document.getCreatedAt());
         dto.setUpdatedAt(document.getUpdatedAt());
         return dto;
@@ -233,5 +266,41 @@ public class CaseDocumentService {
 
     private boolean isMinioPath(String filePath) {
         return filePath != null && filePath.startsWith("minio:");
+    }
+
+    private int nextVersionNo(Long caseId, String documentName) {
+        return caseDocumentRepository.findMaxVersionNo(caseId, documentName)
+                .map(max -> max + 1)
+                .orElse(1);
+    }
+
+    private String resolveContentType(String contentType, String filename) {
+        if (contentType != null && !contentType.isBlank()) {
+            return contentType;
+        }
+        if (filename == null) {
+            return "application/octet-stream";
+        }
+        String lower = filename.toLowerCase();
+        if (lower.endsWith(".pdf")) {
+            return "application/pdf";
+        }
+        if (lower.endsWith(".png")) {
+            return "image/png";
+        }
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        if (lower.endsWith(".docx")) {
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        }
+        return "application/octet-stream";
+    }
+
+    public String resolvePreviewContentType(CaseDocument document) {
+        if (document.getContentType() != null && !document.getContentType().isBlank()) {
+            return document.getContentType();
+        }
+        return resolveContentType(null, document.getDocumentName());
     }
 }

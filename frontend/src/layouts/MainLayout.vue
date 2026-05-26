@@ -345,8 +345,8 @@ const updateUnreadCount = async (count) => {
     // 如果没有传count，从服务器获取
     try {
       const response = await request.get('/notification/unread-count')
-      if (response.data.code === 200) {
-        unreadCount.value = response.data.data
+      if (response.code === 200) {
+        unreadCount.value = response.data
       }
     } catch (error) {
       console.error('获取未读数量失败:', error)

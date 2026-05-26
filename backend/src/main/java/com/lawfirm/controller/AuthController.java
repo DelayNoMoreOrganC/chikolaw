@@ -15,6 +15,7 @@ import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -41,6 +42,10 @@ public class AuthController {
     private final JwtUtil jwtUtil;
     private final PasswordEncoder passwordEncoder;
     private final com.lawfirm.security.LoginAttemptCache loginAttemptCache;
+
+    /** 是否启用登录失败锁定（开发环境可在 application-dev 中关闭） */
+    @Value("${login.lock-enabled:true}")
+    private boolean loginLockEnabled;
 
     @Autowired(required = false)
     private RedisUtil redisUtil;
@@ -81,11 +86,8 @@ public class AuthController {
         String username = request.getUsername();
         String password = request.getPassword();
 
-        // 检查登录失败次数（直接使用内存缓存，因为Redis不可用）
-        Integer failCount = loginAttemptCache.getFailedAttempts(username);
-
-        // 检查是否被锁定（修复P0漏洞3：锁定逻辑提前，用户不存在时也生效）
-        if (failCount >= 5) {
+        // 检查是否仍在锁定期（必须用 isLocked，不能仅用次数≥5，否则锁定期结束后在清理任务运行前会一直被拒）
+        if (loginLockEnabled && loginAttemptCache.isLocked(username)) {
             long remainingMinutes = loginAttemptCache.getRemainingLockTime(username);
             throw new AuthenticationFailedException(
                 String.format("登录失败次数过多，账号已被锁定，请%d分钟后再试", Math.max(1, remainingMinutes))
@@ -131,17 +133,17 @@ public class AuthController {
             return Result.success(data);
 
         } catch (Exception e) {
-            // 认证失败，使用内存缓存记录失败次数
-            loginAttemptCache.recordFailedAttempt(username);
-            int currentFailCount = loginAttemptCache.getFailedAttempts(username);
-
-            log.warn("用户登录失败: {}, 失败次数: {}", username, currentFailCount);
-
-            // 如果达到5次，抛出锁定异常
-            if (currentFailCount >= 5) {
-                throw new AuthenticationFailedException(
-                    "登录失败次数过多，账号已被锁定30分钟"
-                );
+            if (loginLockEnabled) {
+                loginAttemptCache.recordFailedAttempt(username);
+                int currentFailCount = loginAttemptCache.getFailedAttempts(username);
+                log.warn("用户登录失败: {}, 失败次数: {}", username, currentFailCount);
+                if (currentFailCount >= 5) {
+                    throw new AuthenticationFailedException(
+                        "登录失败次数过多，账号已被锁定30分钟"
+                    );
+                }
+            } else {
+                log.warn("用户登录失败: {} (开发环境未启用登录锁定)", username);
             }
 
             throw new AuthenticationFailedException("用户名或密码错误");

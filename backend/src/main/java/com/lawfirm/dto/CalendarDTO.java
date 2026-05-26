@@ -38,6 +38,20 @@ public class CalendarDTO {
 
     private String caseName;
 
+    /** 关联案件类型（筛选：工作台日历） */
+    private String caseType;
+
+    /** 关联案件状态 */
+    private String caseStatus;
+
+    /** 管辖法院 */
+    private String court;
+
+    /** 主办律师 ID / 姓名 */
+    private Long ownerId;
+
+    private String ownerName;
+
     private List<String> participantIds;
 
     private List<String> participantNames;

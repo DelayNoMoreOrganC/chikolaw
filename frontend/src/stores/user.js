@@ -10,7 +10,7 @@ export const useUserStore = defineStore('user', {
 
   getters: {
     isLoggedIn: (state) => !!state.token,
-    userName: (state) => state.userInfo?.name || '',
+    userName: (state) => state.userInfo?.realName || state.userInfo?.username || '',
     userId: (state) => state.userInfo?.id || '',
     userRole: (state) => state.userInfo?.role || ''
   },
@@ -52,6 +52,15 @@ export const useUserStore = defineStore('user', {
       } catch (error) {
         throw error
       }
+    },
+
+    // 仅清除本地登录态（不请求后端，用于登录前丢弃过期 Token）
+    clearLocalAuth() {
+      this.token = ''
+      this.userInfo = null
+      this.permissions = []
+      localStorage.removeItem('token')
+      localStorage.removeItem('userInfo')
     },
 
     // 登出

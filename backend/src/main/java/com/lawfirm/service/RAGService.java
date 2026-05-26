@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lawfirm.dto.RAGChatRequest;
 import com.lawfirm.entity.AIConfig;
+import com.lawfirm.enums.AIModelUseCase;
 import com.lawfirm.entity.KnowledgeArticle;
 import com.lawfirm.repository.KnowledgeArticleRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,7 +24,7 @@ import java.util.stream.Collectors;
 public class RAGService {
 
     private final LLMApiService llmApiService;
-    private final AIConfigService aiConfigService;
+    private final AIModelRoutingService aimodelRoutingService;
     private final KnowledgeArticleRepository knowledgeArticleRepository;
     private final EmbeddingService embeddingService;
     private final QdrantVectorService qdrantVectorService;
@@ -47,11 +48,7 @@ public class RAGService {
         try {
             log.info("RAG检索问题: {}", request.getQuestion());
 
-            // 获取AI配置
-            AIConfig config = aiConfigService.getDefaultConfig();
-            if (config == null) {
-                throw new RuntimeException("AI配置未设置，请先在系统设置中配置AI服务");
-            }
+            AIConfig config = aimodelRoutingService.resolveForUseCase(AIModelUseCase.RAG);
             modelName = config.getModelName();
 
             // Step 1: 检索相关文档
@@ -70,7 +67,7 @@ public class RAGService {
 
             // Step 3: 通过LLM生成答案
             String enhancedPrompt = buildRAGPrompt(request.getQuestion(), context);
-            result = llmApiService.chatWithConfig(enhancedPrompt, config);
+            result = llmApiService.chatWithConfig(enhancedPrompt, null, config);
 
             // Step 4: 提取源信息
             List<Map<String, Object>> sources = buildSources(scoredDocs);

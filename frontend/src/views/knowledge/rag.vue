@@ -49,6 +49,7 @@
             <div class="source-detail">
               <p><strong>分类：</strong>{{ source.category }}</p>
               <p><strong>摘要：</strong>{{ source.summary }}</p>
+              <p v-if="source.citationSnippet"><strong>摘录：</strong>{{ source.citationSnippet }}</p>
               <el-button
                 size="small"
                 @click="viewDocument(source.id)"
@@ -68,6 +69,9 @@
         <el-tag v-if="documentCount" type="info">
           引用 {{ documentCount }} 篇文档
         </el-tag>
+        <el-tag v-if="retrievalMode" type="info" effect="plain">
+          检索：{{ retrievalModeLabel }}
+        </el-tag>
       </div>
     </el-card>
   </div>
@@ -78,7 +82,7 @@ import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { searchKnowledge, askAI } from '@/api/knowledge'
+import { askAI } from '@/api/knowledge'
 
 const question = ref('')
 const answer = ref('')
@@ -87,6 +91,18 @@ const hasAnswer = ref(false)
 const documentCount = ref(0)
 const loading = ref(false)
 const activeSources = ref(['0', '1', '2'])
+const retrievalMode = ref('')
+
+const RETRIEVAL_LABELS = {
+  VECTOR: '向量语义',
+  KEYWORD_AFTER_VECTOR_EMPTY: '关键词（向量无结果）',
+  KEYWORD_AFTER_VECTOR_MISS: '关键词（向量未解析到文档）',
+  KEYWORD_FALLBACK: '关键词（向量服务异常）',
+  NO_HITS: '无命中',
+  ERROR: '错误'
+}
+
+const retrievalModeLabel = computed(() => RETRIEVAL_LABELS[retrievalMode.value] || retrievalMode.value || '')
 
 const exampleQuestions = [
   '劳动仲裁申请流程',
@@ -121,60 +137,20 @@ const handleSearch = async () => {
   sources.value = []
   hasAnswer.value = false
   documentCount.value = 0
+  retrievalMode.value = ''
 
   try {
-    // 步骤1: 搜索相关文档
-    const searchResponse = await searchKnowledge(question.value, { size: 5 })
-    const relevantDocs = searchResponse.data?.records || searchResponse.data || []
+    const aiResponse = await askAI(question.value)
+    const d = aiResponse.data || {}
+    answer.value = d.answer || '暂无回答'
+    hasAnswer.value = !!d.hasAnswer
+    documentCount.value = d.documentCount || (d.sources?.length ?? 0)
+    sources.value = d.sources || []
+    retrievalMode.value = d.retrievalMode || ''
 
-    if (relevantDocs.length === 0) {
-      answer.value = `抱歉，知识库中没有找到与"${question.value}"相关的内容。
-
-建议：
-1. 尝试使用不同的关键词
-2. 检查输入是否有误
-3. 联系专业律师咨询`
-      hasAnswer.value = false
-      loading.value = false
-      return
+    if (!hasAnswer.value && !answer.value) {
+      answer.value = `未找到与「${question.value}」相关的知识库内容，请尝试换关键词。`
     }
-
-    // 步骤2: 尝试调用AI生成答案
-    try {
-      const aiResponse = await askAI(question.value, {
-        context: relevantDocs.map(doc => ({
-          id: doc.id,
-          title: doc.title,
-          content: doc.content || doc.summary
-        }))
-      })
-
-      answer.value = aiResponse.data?.answer || generateMockAnswer(relevantDocs)
-      hasAnswer.value = true
-      documentCount.value = relevantDocs.length
-
-      sources.value = relevantDocs.slice(0, 3).map(doc => ({
-        id: doc.id,
-        title: doc.title,
-        category: doc.category,
-        summary: doc.summary || (doc.content?.substring(0, 100) + '...')
-      }))
-
-    } catch (aiError) {
-      // AI接口不可用，使用增强的模拟答案
-      console.warn('AI接口不可用，使用增强答案', aiError)
-      answer.value = generateMockAnswer(relevantDocs)
-      hasAnswer.value = true
-      documentCount.value = relevantDocs.length
-
-      sources.value = relevantDocs.slice(0, 3).map(doc => ({
-        id: doc.id,
-        title: doc.title,
-        category: doc.category,
-        summary: doc.summary || (doc.content?.substring(0, 100) + '...')
-      }))
-    }
-
   } catch (error) {
     console.error('搜索失败', error)
     ElMessage.error('搜索失败，请稍后再试')
@@ -183,40 +159,6 @@ const handleSearch = async () => {
   } finally {
     loading.value = false
   }
-}
-
-// 生成增强的模拟答案（当AI不可用时）
-const generateMockAnswer = (docs) => {
-  if (!docs || docs.length === 0) {
-    return '抱歉，没有找到相关信息。'
-  }
-
-  const topDoc = docs[0]
-  let answer = `根据知识库检索结果，找到以下相关信息：\n\n`
-
-  // 添加最相关的文档内容
-  answer += `**${topDoc.title}**\n\n`
-  if (topDoc.summary) {
-    answer += `${topDoc.summary}\n\n`
-  } else if (topDoc.content) {
-    answer += `${topDoc.content.substring(0, 400)}...\n\n`
-  }
-
-  // 如果有多个相关文档，列出其他文档
-  if (docs.length > 1) {
-    answer += `其他相关文档：\n`
-    docs.slice(1, 4).forEach((doc, index) => {
-      answer += `${index + 1}. ${doc.title}\n`
-    })
-  }
-
-  answer += `\n💡 **提示**：`
-  answer += `\n- 以上结果来自知识库文档检索`
-  answer += `\n- 建议查看完整文档获取详细信息`
-  answer += `\n- 如需更准确的解答，请咨询专业律师`
-  answer += `\n- 配置AI服务可获得智能问答功能`
-
-  return answer
 }
 
 const viewDocument = (id) => {

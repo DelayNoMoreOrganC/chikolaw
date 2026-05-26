@@ -2,24 +2,24 @@
   <div class="approval-filter">
     <el-form :inline="true" :model="filterForm" class="filter-form">
       <el-form-item label="审批类型">
-        <el-select v-model="filterForm.type" placeholder="全部" clearable style="width: 150px">
+        <el-select v-model="filterForm.approvalType" placeholder="全部" clearable style="width: 150px">
           <el-option label="全部" value="" />
-          <el-option label="用印申请" value="用印申请" />
-          <el-option label="费用报销" value="费用报销" />
-          <el-option label="开票申请" value="开票申请" />
-          <el-option label="请假出差" value="请假出差" />
-          <el-option label="采购申请" value="采购申请" />
-          <el-option label="证照借用" value="证照借用" />
+          <el-option
+            v-for="t in typeOptions"
+            :key="t.code"
+            :label="t.name"
+            :value="t.code"
+          />
         </el-select>
       </el-form-item>
 
       <el-form-item label="状态">
         <el-select v-model="filterForm.status" placeholder="全部" clearable style="width: 120px">
           <el-option label="全部" value="" />
-          <el-option label="审批中" value="审批中" />
-          <el-option label="已同意" value="已同意" />
-          <el-option label="已驳回" value="已驳回" />
-          <el-option label="已撤回" value="已撤回" />
+          <el-option label="待审批" value="PENDING" />
+          <el-option label="已同意" value="APPROVED" />
+          <el-option label="已驳回" value="REJECTED" />
+          <el-option label="已撤回" value="WITHDRAWN" />
         </el-select>
       </el-form-item>
 
@@ -63,15 +63,30 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { Search, RefreshLeft } from '@element-plus/icons-vue'
+import { getApprovalTypes } from '@/api/approval'
 
 const emit = defineEmits(['search', 'reset'])
 
 const filterForm = ref({
-  type: '',
+  approvalType: '',
   status: '',
-  dateRange: null,
+  dateRange: [],
   keyword: ''
+})
+
+const typeOptions = ref([])
+
+onMounted(async () => {
+  try {
+    const res = await getApprovalTypes()
+    if (res.code === 200 || res.success) {
+      typeOptions.value = res.data || []
+    }
+  } catch {
+    typeOptions.value = []
+  }
 })
 
 const handleSearch = () => {
@@ -80,24 +95,24 @@ const handleSearch = () => {
 
 const handleReset = () => {
   filterForm.value = {
-    type: '',
+    approvalType: '',
     status: '',
-    dateRange: null,
+    dateRange: [],
     keyword: ''
   }
   emit('reset')
 }
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .approval-filter {
-  margin-bottom: 16px;
-  padding: 16px;
   background: #fff;
-  border-radius: 4px;
-}
+  padding: 16px 24px;
+  border-radius: 12px;
+  margin-bottom: 16px;
 
-.filter-form {
-  margin: 0;
+  .filter-form {
+    margin-bottom: 0;
+  }
 }
 </style>

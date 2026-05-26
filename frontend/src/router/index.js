@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useUserStore } from '@/stores'
 import { ElMessage } from 'element-plus'
+import { useUserStore } from '@/stores'
+
+const SETTINGS_PERMISSIONS = ['SYSTEM_CONFIG', 'USER_VIEW', 'ROLE_VIEW']
 
 const routes = [
   {
@@ -315,7 +317,7 @@ const routes = [
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/settings/index.vue'),
-        meta: { title: '设置', icon: '⚙️' }
+        meta: { title: '设置', icon: '⚙️', requiresSettings: true }
       }
     ]
   },
@@ -339,8 +341,11 @@ router.beforeEach((to, from) => {
   // 设置页面标题
   document.title = to.meta.title ? `${to.meta.title} - 律所智能案件管理系统` : '律所智能案件管理系统'
 
-  // 如果访问的是登录页，直接放行
+  // 已登录时不再进入登录页（开发环境自动登录后常见）
   if (to.path === '/login') {
+    if (userStore.isLoggedIn) {
+      return { path: '/' }
+    }
     return
   }
 
@@ -349,6 +354,16 @@ router.beforeEach((to, from) => {
     return {
       path: '/login',
       query: { redirect: to.fullPath }
+    }
+  }
+
+  // 系统设置：前端路由守卫（与后端 SYSTEM_* / USER_VIEW 权限对齐）
+  if (to.meta.requiresSettings) {
+    const perms = userStore.permissions || []
+    const allowed = perms.some((p) => SETTINGS_PERMISSIONS.includes(p))
+    if (!allowed) {
+      ElMessage.warning('无权访问系统设置')
+      return { path: '/dashboard' }
     }
   }
 

@@ -55,6 +55,8 @@ public class UserService {
             throw new DuplicateResourceException("用户", "username", request.getUsername());
         }
 
+        validatePasswordStrength(request.getPassword());
+
         User user = new User();
         BeanUtils.copyProperties(request, user);
 

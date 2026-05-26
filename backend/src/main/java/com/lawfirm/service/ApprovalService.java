@@ -1,5 +1,7 @@
 package com.lawfirm.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lawfirm.dto.*;
 import com.lawfirm.entity.*;
 import com.lawfirm.enums.ApprovalStatus;
@@ -30,6 +32,13 @@ public class ApprovalService {
     private final UserRepository userRepository;
     private final CaseRepository caseRepository;
     private final NotificationService notificationService;
+    private final CaseIntakePendingRepository caseIntakePendingRepository;
+    private final ApprovalWorkflowService approvalWorkflowService;
+    private final ObjectMapper objectMapper;
+
+    public static final String TYPE_OFFICIAL_DOC = "OFFICIAL_DOC";
+    public static final String TYPE_CASE_TERMINATION = "CASE_TERMINATION";
+    public static final String TYPE_OTHER = "OTHER";
 
     /**
      * 审批类型常量
@@ -40,6 +49,7 @@ public class ApprovalService {
     public static final String TYPE_LEAVE = "LEAVE";  // 请假出差
     public static final String TYPE_PURCHASE = "PURCHASE";  // 采购申请
     public static final String TYPE_LICENSE = "LICENSE";  // 证照借用
+    public static final String TYPE_CASE_FILING = "CASE_FILING";  // 立案申请（卷宗录入未匹配）
 
     /**
      * 创建审批
@@ -49,8 +59,27 @@ public class ApprovalService {
         Approval approval = new Approval();
         BeanUtils.copyProperties(request, approval);
         approval.setApplicantId(currentUserId);
-        approval.setStatus(ApprovalStatus.PENDING.getCode());
         approval.setApplyTime(LocalDateTime.now());
+
+        if (request.getCurrentApproverId() != null) {
+            approval.setCurrentApproverId(request.getCurrentApproverId());
+            approval.setStatus(ApprovalStatus.PENDING.getCode());
+        } else if (approvalWorkflowService.isAutoApproveAll(request.getApprovalType())) {
+            approval.setStatus(ApprovalStatus.APPROVED.getCode());
+            approval.setApprovedTime(LocalDateTime.now());
+            approval.setCurrentApproverId(currentUserId);
+        } else {
+            java.util.Optional<Long> firstApprover =
+                    approvalWorkflowService.resolveFirstApproverId(request.getApprovalType());
+            if (firstApprover.isPresent()) {
+                approval.setCurrentApproverId(firstApprover.get());
+                approval.setStatus(ApprovalStatus.PENDING.getCode());
+            } else {
+                approval.setStatus(ApprovalStatus.APPROVED.getCode());
+                approval.setApprovedTime(LocalDateTime.now());
+                approval.setCurrentApproverId(currentUserId);
+            }
+        }
 
         // 如果关联案件，验证案件是否存在
         if (request.getCaseId() != null) {
@@ -75,17 +104,14 @@ public class ApprovalService {
         Approval approval = approvalRepository.findById(approvalId)
                 .orElseThrow(() -> new RuntimeException("审批单不存在"));
 
-        // 验证审批人
-        if (!approval.getCurrentApproverId().equals(approverId)) {
+        if (approval.getCurrentApproverId() != null && !approval.getCurrentApproverId().equals(approverId)) {
             throw new RuntimeException("您不是当前审批人");
         }
 
-        // 验证状态
         if (!ApprovalStatus.PENDING.getCode().equals(approval.getStatus())) {
             throw new RuntimeException("审批单状态不正确");
         }
 
-        // 更新审批单状态
         approval.setStatus(ApprovalStatus.APPROVED.getCode());
         approval.setApprovedTime(LocalDateTime.now());
         approval.setApprovalNotes(comments);
@@ -94,6 +120,13 @@ public class ApprovalService {
 
         // 记录流程
         recordFlow(approvalId, approverId, "APPROVE", comments);
+
+        if (TYPE_CASE_FILING.equals(approval.getApprovalType())) {
+            Long pendingId = parseIntakePendingId(approval.getAttachments());
+            if (pendingId != null) {
+                markIntakeFilingApproved(pendingId, approvalId);
+            }
+        }
     }
 
     /**
@@ -104,17 +137,14 @@ public class ApprovalService {
         Approval approval = approvalRepository.findById(approvalId)
                 .orElseThrow(() -> new RuntimeException("审批单不存在"));
 
-        // 验证审批人
-        if (!approval.getCurrentApproverId().equals(approverId)) {
+        if (approval.getCurrentApproverId() != null && !approval.getCurrentApproverId().equals(approverId)) {
             throw new RuntimeException("您不是当前审批人");
         }
 
-        // 验证状态
         if (!ApprovalStatus.PENDING.getCode().equals(approval.getStatus())) {
             throw new RuntimeException("审批单状态不正确");
         }
 
-        // 更新审批单状态
         approval.setStatus(ApprovalStatus.REJECTED.getCode());
         approval.setApprovedTime(LocalDateTime.now());
         approval.setApprovalNotes(comments);
@@ -133,8 +163,8 @@ public class ApprovalService {
         Approval approval = approvalRepository.findById(approvalId)
                 .orElseThrow(() -> new RuntimeException("审批单不存在"));
 
-        // 验证当前审批人
-        if (!approval.getCurrentApproverId().equals(currentApproverId)) {
+        if (approval.getCurrentApproverId() != null
+                && !approval.getCurrentApproverId().equals(currentApproverId)) {
             throw new RuntimeException("您不是当前审批人");
         }
 
@@ -326,6 +356,10 @@ public class ApprovalService {
         types.add(createTypeItem(TYPE_LEAVE, "请假出差"));
         types.add(createTypeItem(TYPE_PURCHASE, "采购申请"));
         types.add(createTypeItem(TYPE_LICENSE, "证照借用"));
+        types.add(createTypeItem(TYPE_CASE_FILING, "立案申请"));
+        types.add(createTypeItem(TYPE_OFFICIAL_DOC, "公文流转"));
+        types.add(createTypeItem(TYPE_CASE_TERMINATION, "终止委托"));
+        types.add(createTypeItem(TYPE_OTHER, "其他"));
         return types;
     }
 
@@ -381,5 +415,32 @@ public class ApprovalService {
         item.put("code", code);
         item.put("name", name);
         return item;
+    }
+
+    private void markIntakeFilingApproved(Long pendingId, Long approvalId) {
+        caseIntakePendingRepository.findById(pendingId).ifPresent(p -> {
+            if ("PENDING".equals(p.getStatus()) || "FILING_APPROVED".equals(p.getStatus())) {
+                p.setStatus("FILING_APPROVED");
+                if (approvalId != null) {
+                    p.setApprovalId(approvalId);
+                }
+                caseIntakePendingRepository.save(p);
+            }
+        });
+    }
+
+    private Long parseIntakePendingId(String attachments) {
+        if (attachments == null || attachments.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode node = objectMapper.readTree(attachments);
+            if (node.has("intakePendingId") && !node.get("intakePendingId").isNull()) {
+                return node.get("intakePendingId").asLong();
+            }
+        } catch (Exception e) {
+            log.warn("解析立案审批附件失败: {}", attachments);
+        }
+        return null;
     }
 }

@@ -127,8 +127,10 @@ public class AIConfigController {
                         "models", List.of("deepseek-chat", "deepseek-coder", "deepseek-vl")),
                 Map.of("type", "qwen", "name", "通义千问", "description", "阿里云通义千问 - 企业级AI服务",
                         "models", List.of("qwen-turbo", "qwen-plus", "qwen-max", "qwen-vl-max")),
-                Map.of("type", "openai", "name", "OpenAI", "description", "OpenAI GPT系列",
-                        "models", List.of("gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "gpt-4-vision-preview")),
+                Map.of("type", "openai", "name", "OpenAI 兼容", "description", "OpenAI API 兼容（含 LM Studio 本地服务）",
+                        "models", List.of("local-qwen", "gpt-4o-mini", "gpt-4")),
+                Map.of("type", "lmstudio", "name", "LM Studio", "description", "本地 LM Studio（OpenAI 兼容，默认 http://127.0.0.1:1234）",
+                        "models", List.of("请在 LM Studio 中查看已加载模型的 Model ID")),
                 Map.of("type", "ollama", "name", "Ollama", "description", "本地部署的开源大模型",
                         "models", List.of("qwen2.5", "llama3", "mistral", "deepseek-coder"))
         );

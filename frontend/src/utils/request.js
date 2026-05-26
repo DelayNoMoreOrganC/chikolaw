@@ -300,5 +300,13 @@ export const request = async (requestFn, options = {}) => {
   }
 }
 
+/**
+ * AI / LLM 相关 HTTP 请求（默认 120s 超时，避免本地模型或 Vision 较慢时误报超时）
+ * @param {import('axios').AxiosRequestConfig} config
+ */
+export function aiHttp(config) {
+  return longTimeoutService(config)
+}
+
 export default service
 export { longTimeoutService }

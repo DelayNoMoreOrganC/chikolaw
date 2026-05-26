@@ -57,7 +57,9 @@ public class SecurityConfig {
         // 修复P0漏洞1: 限制允许的源，防止任意源访问
         configuration.setAllowedOriginPatterns(Arrays.asList(
             "http://localhost:3017",      // 前端开发环境
+            "http://127.0.0.1:3017",
             "http://localhost:5173",      // Vite默认端口
+            "http://127.0.0.1:5173",
             "http://localhost:8080",      // 后端端口（用于同源测试）
             "https://your-domain.com"     // 生产环境（实际部署时修改）
         ));

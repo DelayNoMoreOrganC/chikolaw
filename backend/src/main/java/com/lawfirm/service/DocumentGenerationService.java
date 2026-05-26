@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lawfirm.dto.DocumentGenerateRequest;
 import com.lawfirm.entity.AIConfig;
+import com.lawfirm.enums.AIModelUseCase;
 import com.lawfirm.entity.Case;
 import com.lawfirm.enums.AIFunctionType;
 import com.lawfirm.exception.AIServiceException;
@@ -25,7 +26,7 @@ import java.util.Map;
 public class DocumentGenerationService {
 
     private final LLMApiService llmApiService;
-    private final AIConfigService aiConfigService;
+    private final AIModelRoutingService aimodelRoutingService;
     private final AILogService aiLogService;
     private final CaseRepository caseRepository;
     private final ObjectMapper objectMapper;
@@ -66,11 +67,7 @@ public class DocumentGenerationService {
         String prompt = null;
 
         try {
-            // 获取AI配置
-            AIConfig config = aiConfigService.getDefaultConfig();
-            if (config == null) {
-                throw new AIServiceException("未配置AI服务，请先在系统设置中配置AI");
-            }
+            AIConfig config = aimodelRoutingService.resolveForUseCase(AIModelUseCase.DOCUMENT);
             modelName = config.getModelName();
 
             // 获取案件信息
@@ -86,8 +83,8 @@ public class DocumentGenerationService {
             // 记录完整的Prompt用于日志
             prompt = "System:\n" + systemPrompt + "\n\nUser:\n" + userMessage;
 
-            // 调用LLM API生成文书
-            result = llmApiService.chatWithDeepSeek(userMessage, systemPrompt);
+            // 调用当前默认配置（支持本地优先 + 失败自动降级到 DeepSeek）
+            result = llmApiService.chatWithConfig(userMessage, systemPrompt, config);
 
             // 记录成功日志
             int duration = (int) (System.currentTimeMillis() - startTime);

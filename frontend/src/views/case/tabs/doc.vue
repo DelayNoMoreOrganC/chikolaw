@@ -297,13 +297,25 @@
     </el-dialog>
 
     <!-- 文件预览对话框 -->
-    <el-dialog v-model="previewDialogVisible" title="文件预览" width="800px">
-      <div v-if="previewFile" class="preview-container">
+    <el-dialog
+      v-model="previewDialogVisible"
+      title="文件预览"
+      width="900px"
+      destroy-on-close
+      @closed="revokePreviewBlob"
+    >
+      <div v-if="previewFile" v-loading="previewLoading" class="preview-container">
         <img
-          v-if="['jpg', 'jpeg', 'png', 'gif', 'bmp'].includes(previewFile.type.toLowerCase())"
-          :src="getPreviewUrl(previewFile)"
-          style="max-width: 100%; max-height: 600px"
+          v-if="previewMode === 'image' && previewBlobUrl"
+          :src="previewBlobUrl"
+          style="max-width: 100%; max-height: 70vh"
           alt="预览"
+        />
+        <iframe
+          v-else-if="previewMode === 'pdf' && previewBlobUrl"
+          :src="previewBlobUrl"
+          class="preview-pdf-frame"
+          title="PDF 预览"
         />
       </div>
     </el-dialog>
@@ -320,12 +332,14 @@ watch(() => props.caseData.id, (newId) => {
   }
 }, { immediate: true })
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { generateDoc, ocrUpload, extractInfo } from '@/api/ai'
+import { generateDoc, recognizeLegalDocument } from '@/api/ai'
 import {
   getCaseDocuments,
   uploadCaseDocument,
   deleteCaseDocument,
-  moveCaseDocument
+  moveCaseDocument,
+  previewCaseDocument,
+  downloadCaseDocument
 } from '@/api/case'
 import {
   Plus, Upload, DocumentAdd, MagicStick, Search, FolderOpened, Folder,
@@ -359,6 +373,9 @@ const aiDocForm = ref({
 })
 const previewDialogVisible = ref(false)
 const previewFile = ref(null)
+const previewBlobUrl = ref('')
+const previewMode = ref('')
+const previewLoading = ref(false)
 
 // 文档列表（从API获取）
 const documents = ref([])
@@ -647,7 +664,8 @@ const fileList = computed(() => {
       documentType: doc.documentType,
       filePath: doc.filePath,
       folderPath: doc.folderPath,
-      version: '1.0' // 暂时没有版本字段
+      version: doc.versionNo != null ? `v${doc.versionNo}` : 'v1',
+      contentType: doc.contentType
     }
   })
 })
@@ -765,37 +783,28 @@ const handleAIUpload = () => {
 
 const handleAIFileChange = async (file) => {
   try {
-    ElMessage.info('正在识别文档，请稍候...')
-
-    // 1. OCR识别
-    const ocrResponse = await ocrUpload(file.raw)
-    if (!ocrResponse.success) {
-      ElMessage.error('OCR识别失败')
+    ElMessage.info('正在识别文档（生产路径 Vision+LLM），请稍候...')
+    const res = await recognizeLegalDocument(file.raw, props.caseData?.id)
+    if (!(res.code === 200 || res.success) || !res.data) {
+      ElMessage.error(res.message || 'AI识别失败')
       return
     }
-
-    // 2. AI提取文档信息
-    const extractResponse = await extractInfo({
-      ocrText: ocrResponse.data
-    })
-
-    if (!extractResponse.success) {
-      ElMessage.error('AI信息提取失败')
-      return
-    }
-
-    // 3. 显示识别结果
+    const data = res.data
     aiResult.value = {
-      docType: extractResponse.data.documentType || '未识别',
-      suggestedFolder: extractResponse.data.suggestedFolder || '其他',
-      content: extractResponse.data.summary || '识别成功'
+      docType: data.documentType || '未识别',
+      suggestedFolder: data.documentType ? `法院文书/${data.documentType}` : '其他',
+      content: [
+        data.caseNumber && `案号：${data.caseNumber}`,
+        data.courtName && `法院：${data.courtName}`,
+        data.plaintiffName && `原告：${data.plaintiffName}`,
+        data.defendantName && `被告：${data.defendantName}`,
+        data.caseReason && `案由：${data.caseReason}`
+      ].filter(Boolean).join('\n') || '识别成功'
     }
-
     ElMessage.success('AI识别成功！')
   } catch (error) {
     console.error('AI识别失败:', error)
     ElMessage.error('AI识别失败，请重试')
-    // 降级到模拟数据
     aiResult.value = {
       docType: '起诉状',
       suggestedFolder: '起诉状',
@@ -922,27 +931,44 @@ const handleSelectionChange = (selection) => {
   selectedFiles.value = selection
 }
 
+const revokePreviewBlob = () => {
+  if (previewBlobUrl.value) {
+    window.URL.revokeObjectURL(previewBlobUrl.value)
+    previewBlobUrl.value = ''
+  }
+  previewMode.value = ''
+  previewFile.value = null
+}
+
+const loadPreviewBlob = async (file, mimeHint) => {
+  revokePreviewBlob()
+  previewLoading.value = true
+  try {
+    const data = await previewCaseDocument(props.caseData.id, file.id)
+    const mime = mimeHint || (file.type === 'pdf' ? 'application/pdf' : `image/${file.type}`)
+    const blob = new Blob([data], { type: mime })
+    previewBlobUrl.value = window.URL.createObjectURL(blob)
+  } finally {
+    previewLoading.value = false
+  }
+}
+
 // 预览文件
 const handlePreviewFile = async (file) => {
   const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp']
   const pdfExt = 'pdf'
+  const ext = (file.type || '').toLowerCase()
 
-  if (imageExts.includes(file.type.toLowerCase())) {
-    // 图片文件 - 直接预览
+  if (imageExts.includes(ext)) {
     previewFile.value = file
+    previewMode.value = 'image'
     previewDialogVisible.value = true
-  } else if (file.type.toLowerCase() === pdfExt) {
-    // PDF文件 - 在新窗口打开
-    try {
-      const response = await downloadCaseDocument(props.caseData.id, file.id)
-      const blob = new Blob([response], { type: 'application/pdf' })
-      const url = window.URL.createObjectURL(blob)
-      window.open(url, '_blank')
-      ElMessage.success('PDF已在新窗口打开')
-    } catch (error) {
-      console.error('预览PDF失败:', error)
-      ElMessage.error('预览失败，请先下载文件')
-    }
+    await loadPreviewBlob(file, `image/${ext === 'jpg' ? 'jpeg' : ext}`)
+  } else if (ext === pdfExt) {
+    previewFile.value = file
+    previewMode.value = 'pdf'
+    previewDialogVisible.value = true
+    await loadPreviewBlob(file, 'application/pdf')
   } else {
     // 其他文件 - 提示下载
     ElMessageBox.confirm(
@@ -1145,13 +1171,6 @@ const handleSaveDoc = () => {
   ElMessage.success('文档保存成功')
 }
 
-// 获取预览URL
-const getPreviewUrl = (file) => {
-  if (file.filePath) {
-    return file.filePath
-  }
-  return `/api/cases/${props.caseData.id}/documents/${file.id}/download`
-}
 </script>
 
 <style scoped lang="scss">
@@ -1267,6 +1286,16 @@ const getPreviewUrl = (file) => {
       font-size: 14px;
       color: #333;
     }
+  }
+
+  .preview-container {
+    min-height: 400px;
+  }
+
+  .preview-pdf-frame {
+    width: 100%;
+    height: 70vh;
+    border: none;
   }
 }
 </style>

@@ -84,31 +84,38 @@ public class CaseFlowTemplateService implements CommandLineRunner {
         todos.add(new StageTodo("签约", 2, "签署授权委托书", "办理正式委托手续，签署授权委托书", "HIGH", 2, "OWNER"));
         todos.add(new StageTodo("签约", 2, "收取律师费", "按照约定收取首期律师费", "MEDIUM", 3, "OWNER"));
 
-        // 起草阶段
-        todos.add(new StageTodo("起草", 3, "收集整理证据", "全面收集案件相关证据材料", "HIGH", 3, "ASSISTANT"));
-        todos.add(new StageTodo("起草", 3, "起草起诉状", "根据案件事实和法律起草起诉状", "HIGH", 5, "OWNER"));
-        todos.add(new StageTodo("起草", 3, "准备证据目录", "制作证据目录和证据说明", "MEDIUM", 5, "ASSISTANT"));
+        // 起草文书
+        todos.add(new StageTodo("起草文书", 3, "收集整理证据", "全面收集案件相关证据材料", "HIGH", 3, "ASSISTANT"));
+        todos.add(new StageTodo("起草文书", 3, "起草起诉状", "根据案件事实和法律起草起诉状", "HIGH", 5, "OWNER"));
+        todos.add(new StageTodo("起草文书", 3, "准备证据目录", "制作证据目录和证据说明", "MEDIUM", 5, "ASSISTANT"));
 
-        // 立案阶段
-        todos.add(new StageTodo("立案", 4, "提交立案材料", "向法院提交起诉状及证据材料", "HIGH", 1, "ASSISTANT"));
-        todos.add(new StageTodo("立案", 4, "跟进立案进度", "联系法院立案庭，跟进立案审批", "HIGH", 3, "ASSISTANT"));
-        todos.add(new StageTodo("立案", 4, "缴纳诉讼费", "按照法院通知缴纳案件受理费", "MEDIUM", 5, "OWNER"));
+        // 待立案
+        todos.add(new StageTodo("待立案", 4, "提交立案材料", "向法院提交起诉状及证据材料", "HIGH", 1, "ASSISTANT"));
+        todos.add(new StageTodo("待立案", 4, "跟进立案进度", "联系法院立案庭，跟进立案审批", "HIGH", 3, "ASSISTANT"));
 
-        // 一审阶段
-        todos.add(new StageTodo("一审", 5, "研究对方答辩状", "分析对方答辩观点和证据", "HIGH", 7, "OWNER"));
-        todos.add(new StageTodo("一审", 5, "准备代理词", "根据庭审情况起草代理词", "HIGH", 14, "OWNER"));
-        todos.add(new StageTodo("一审", 5, "参加庭审", "出庭参加法庭审理", "HIGH", 21, "OWNER"));
-        todos.add(new StageTodo("一审", 5, "提交补充材料", "根据庭审情况提交补充证据和代理意见", "MEDIUM", 21, "ASSISTANT"));
+        // 已立案
+        todos.add(new StageTodo("已立案", 5, "缴纳诉讼费", "按照法院通知缴纳案件受理费", "MEDIUM", 5, "OWNER"));
+        todos.add(new StageTodo("已立案", 5, "确认受理通知", "领取受理通知书并告知当事人", "MEDIUM", 3, "ASSISTANT"));
 
-        // 执行阶段（可选）
-        todos.add(new StageTodo("执行", 6, "申请强制执行", "向法院申请强制执行判决", "HIGH", 3, "OWNER"));
-        todos.add(new StageTodo("执行", 6, "提供财产线索", "向法院提供被执行人财产线索", "MEDIUM", 10, "OWNER"));
-        todos.add(new StageTodo("执行", 6, "跟进执行进度", "定期与执行法官沟通执行进展", "MEDIUM", 30, "ASSISTANT"));
+        // 一审审理中
+        todos.add(new StageTodo("一审审理中", 6, "研究对方答辩状", "分析对方答辩观点和证据", "HIGH", 7, "OWNER"));
+        todos.add(new StageTodo("一审审理中", 6, "准备代理词", "根据庭审情况起草代理词", "HIGH", 14, "OWNER"));
+        todos.add(new StageTodo("一审审理中", 6, "参加庭审", "出庭参加法庭审理", "HIGH", 21, "OWNER"));
+        todos.add(new StageTodo("一审审理中", 6, "提交补充材料", "根据庭审情况提交补充证据和代理意见", "MEDIUM", 21, "ASSISTANT"));
 
-        // 结案阶段
-        todos.add(new StageTodo("结案", 7, "整理案件材料", "整理归档案件所有材料", "MEDIUM", 3, "ASSISTANT"));
-        todos.add(new StageTodo("结案", 7, "撰写结案报告", "编写案件结案总结报告", "LOW", 5, "OWNER"));
-        todos.add(new StageTodo("结案", 7, "归档卷宗", "将案件材料归档保存", "LOW", 7, "ASSISTANT"));
+        // 一审结案
+        todos.add(new StageTodo("一审结案", 7, "领取判决书", "领取一审判决书并告知当事人", "HIGH", 3, "ASSISTANT"));
+        todos.add(new StageTodo("一审结案", 7, "分析判决结果", "评估是否上诉", "HIGH", 5, "OWNER"));
+
+        // 执行
+        todos.add(new StageTodo("执行", 8, "申请强制执行", "向法院申请强制执行判决", "HIGH", 3, "OWNER"));
+        todos.add(new StageTodo("执行", 8, "提供财产线索", "向法院提供被执行人财产线索", "MEDIUM", 10, "OWNER"));
+        todos.add(new StageTodo("执行", 8, "跟进执行进度", "定期与执行法官沟通执行进展", "MEDIUM", 30, "ASSISTANT"));
+
+        // 结案归档
+        todos.add(new StageTodo("结案归档", 9, "整理案件材料", "整理归档案件所有材料", "MEDIUM", 3, "ASSISTANT"));
+        todos.add(new StageTodo("结案归档", 9, "撰写结案报告", "编写案件结案总结报告", "LOW", 5, "OWNER"));
+        todos.add(new StageTodo("结案归档", 9, "归档卷宗", "将案件材料归档保存", "LOW", 7, "ASSISTANT"));
 
         // 保存待办模板
         saveStageTodos(template.getId(), todos);

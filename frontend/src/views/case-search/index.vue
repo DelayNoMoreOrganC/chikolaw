@@ -5,47 +5,32 @@
     <div class="search-container">
       <el-card class="search-card">
         <el-form :inline="true" :model="searchForm" @submit.prevent="handleSearch">
-          <el-form-item label="关键词">
+          <el-form-item label="案由" required>
             <el-input
-              v-model="searchForm.keyword"
-              placeholder="输入案由、当事人、法院名称、法条等"
+              v-model="searchForm.caseReason"
+              placeholder="输入案由关键词，如：民间借贷纠纷"
               style="width: 400px"
               clearable
               @keyup.enter="handleSearch"
             />
           </el-form-item>
 
-          <el-form-item label="案件类型">
-            <el-select v-model="searchForm.caseType" placeholder="全部" clearable style="width: 150px">
-              <el-option label="民事案件" value="民事" />
-              <el-option label="刑事案件" value="刑事" />
-              <el-option label="行政案件" value="行政" />
-              <el-option label="执行案件" value="执行" />
+          <el-form-item label="案件类型" required>
+            <el-select v-model="searchForm.caseType" placeholder="请选择" style="width: 150px">
+              <el-option label="民事" value="CIVIL" />
+              <el-option label="商事" value="COMMERCIAL" />
+              <el-option label="刑事" value="CRIMINAL" />
+              <el-option label="行政" value="ADMINISTRATIVE" />
+              <el-option label="仲裁" value="ARBITRATION" />
             </el-select>
+          </el-form-item>
+
+          <el-form-item label="争议金额">
+            <el-input-number v-model="searchForm.amount" :min="0" :precision="2" placeholder="可选" style="width: 160px" />
           </el-form-item>
 
           <el-form-item label="审理法院">
             <el-input v-model="searchForm.court" placeholder="法院名称" clearable style="width: 200px" />
-          </el-form-item>
-
-          <el-form-item label="文书类型">
-            <el-select v-model="searchForm.docType" placeholder="全部" clearable style="width: 150px">
-              <el-option label="判决书" value="判决书" />
-              <el-option label="裁定书" value="裁定书" />
-              <el-option label="调解书" value="调解书" />
-              <el-option label="决定书" value="决定书" />
-            </el-select>
-          </el-form-item>
-
-          <el-form-item label="时间范围">
-            <el-date-picker
-              v-model="searchForm.dateRange"
-              type="daterange"
-              range-separator="至"
-              start-placeholder="开始日期"
-              end-placeholder="结束日期"
-              style="width: 250px"
-            />
           </el-form-item>
 
           <el-form-item>
@@ -67,19 +52,20 @@
         <div v-else class="case-list">
           <div v-for="item in results" :key="item.id" class="case-item" @click="handleView(item)">
             <div class="case-title">
-              <h3>{{ item.title || '案号：' + item.caseNumber }}</h3>
+              <h3>{{ item.title || item.caseName || '案号：' + item.caseNumber }}</h3>
+              <el-tag size="small" type="success" v-if="item.similarityPercent">{{ item.similarityPercent }}</el-tag>
               <el-tag size="small" v-if="item.caseType">{{ item.caseType }}</el-tag>
             </div>
 
             <div class="case-meta">
-              <span>案号：{{ item.caseNumber }}</span>
-              <span>法院：{{ item.court }}</span>
-              <span>日期：{{ item.judgmentDate }}</span>
-              <span v-if="item.docType">类型：{{ item.docType }}</span>
+              <span v-if="item.caseNumber">案号：{{ item.caseNumber }}</span>
+              <span v-if="item.caseReason">案由：{{ item.caseReason }}</span>
+              <span v-if="item.court">法院：{{ item.court }}</span>
+              <span v-if="item.amount">标的：{{ item.amount }}</span>
             </div>
 
-            <div class="case-summary" v-if="item.caseBrief">
-              {{ item.caseBrief }}
+            <div class="case-summary" v-if="item.summary || item.caseBrief">
+              {{ item.summary || item.caseBrief }}
             </div>
 
             <div class="case-actions" style="margin-top: 10px;">
@@ -93,15 +79,6 @@
           </div>
         </div>
 
-        <el-pagination
-          v-if="total > 0"
-          v-model:current-page="currentPage"
-          v-model:page-size="pageSize"
-          :total="total"
-          layout="total, prev, pager, next"
-          @current-change="handleSearch"
-          style="margin-top: 20px; justify-content: center"
-        />
       </el-card>
     </div>
   </div>
@@ -109,110 +86,119 @@
 
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import PageHeader from '@/components/PageHeader.vue'
-import request from '@/utils/request'
+import { searchSimilarCases, searchSimilarByCaseId } from '@/api/caseSearch'
 
 const router = useRouter()
+const route = useRoute()
 
 const searchForm = ref({
-  keyword: '',
-  caseType: '',
+  caseReason: '',
+  caseType: 'CIVIL',
   court: '',
-  docType: '',
-  dateRange: null
+  amount: null
 })
 
 const loading = ref(false)
 const results = ref([])
 const total = ref(0)
-const currentPage = ref(1)
-const pageSize = ref(10)
+
+function mapResultRow(row) {
+  return {
+    id: row.caseId,
+    caseId: row.caseId,
+    title: row.caseName,
+    caseName: row.caseName,
+    caseNumber: row.caseNumber,
+    caseReason: row.caseReason,
+    caseType: row.caseType,
+    court: row.court,
+    amount: row.amount,
+    summary: row.summary,
+    similarityPercent: row.similarityPercent
+  }
+}
 
 const handleSearch = async () => {
-  if (!searchForm.value.keyword) {
-    ElMessage.warning('请输入关键词')
+  if (!searchForm.value.caseReason?.trim()) {
+    ElMessage.warning('请输入案由')
+    return
+  }
+  if (!searchForm.value.caseType) {
+    ElMessage.warning('请选择案件类型')
     return
   }
 
   loading.value = true
-
   try {
-    const params = {
-      page: currentPage.value - 1,
-      size: pageSize.value,
-      q: searchForm.value.keyword
+    const payload = {
+      caseReason: searchForm.value.caseReason.trim(),
+      caseType: searchForm.value.caseType,
+      court: searchForm.value.court || undefined,
+      amount: searchForm.value.amount ?? undefined,
+      limit: 20
     }
-
-    // 添加可选过滤参数
-    if (searchForm.value.caseType) {
-      params.caseType = searchForm.value.caseType
-    }
-    if (searchForm.value.court) {
-      params.court = searchForm.value.court
-    }
-    if (searchForm.value.docType) {
-      params.docType = searchForm.value.docType
-    }
-    if (searchForm.value.dateRange && searchForm.value.dateRange.length === 2) {
-      params.startDate = searchForm.value.dateRange[0]
-      params.endDate = searchForm.value.dateRange[1]
-    }
-
-    const { data } = await request({
-      url: '/search',
-      method: 'get',
-      params
-    })
-
-    results.value = data.content || data || []
-    total.value = data.totalElements || results.value.length
+    const res = await searchSimilarCases(payload)
+    const list = Array.isArray(res.data) ? res.data : []
+    results.value = list.map(mapResultRow)
+    total.value = results.value.length
 
     if (results.value.length === 0) {
-      ElMessage.info('未找到相关案例，请尝试其他关键词')
+      ElMessage.info('未找到相似案件，可调整案由或类型后重试')
     }
   } catch (error) {
-    console.error('搜索失败:', error)
-    ElMessage.error('搜索失败，请稍后再试')
+    console.error('类案检索失败:', error)
+    ElMessage.error(error.message || '检索失败，请稍后再试')
   } finally {
     loading.value = false
   }
 }
 
 const handleReset = () => {
-  searchForm.value = {
-    keyword: '',
-    caseType: '',
-    court: '',
-    docType: '',
-    dateRange: null
-  }
+  searchForm.value = { caseReason: '', caseType: 'CIVIL', court: '', amount: null }
   results.value = []
   total.value = 0
 }
 
 const handleView = (item) => {
-  if (item.id) {
-    router.push(`/case/${item.id}`)
+  const id = item.caseId || item.id
+  if (id) router.push(`/case/${id}`)
+}
+
+const handleViewDetail = (item) => handleView(item)
+
+const handleSimilar = async (item) => {
+  const caseId = item.caseId || item.id
+  if (!caseId) {
+    searchForm.value.caseReason = item.caseReason || item.summary || item.title || ''
+    handleSearch()
+    return
+  }
+  loading.value = true
+  try {
+    const res = await searchSimilarByCaseId(caseId, 10)
+    const list = Array.isArray(res.data) ? res.data : []
+    results.value = list.map(mapResultRow)
+    total.value = results.value.length
+  } catch (e) {
+    ElMessage.error(e.message || '相似案例检索失败')
+  } finally {
+    loading.value = false
   }
 }
 
-const handleViewDetail = (item) => {
-  // 打开案例详情页或对话框
-  if (item.id) {
-    router.push(`/case/${item.id}`)
-  } else if (item.url) {
-    window.open(item.url, '_blank')
-  } else {
-    ElMessage.info('该案例暂无详细信息')
-  }
+if (route.query.caseId) {
+  searchSimilarByCaseId(Number(route.query.caseId), 10).then((res) => {
+    const list = Array.isArray(res.data) ? res.data : []
+    results.value = list.map(mapResultRow)
+    total.value = results.value.length
+  }).catch(() => {})
 }
-
-const handleSimilar = (item) => {
-  // 基于当前案例搜索相似案例
-  searchForm.value.keyword = item.caseBrief || item.title || item.caseNumber
-  handleSearch()
+if (route.query.caseReason) {
+  searchForm.value.caseReason = String(route.query.caseReason)
+  if (route.query.caseType) searchForm.value.caseType = String(route.query.caseType)
 }
 </script>
 

@@ -2,6 +2,7 @@ package com.lawfirm.service;
 
 import com.lawfirm.dto.LegalChatRequest;
 import com.lawfirm.entity.AIConfig;
+import com.lawfirm.enums.AIModelUseCase;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -16,8 +17,8 @@ import org.springframework.stereotype.Service;
 public class LegalChatService {
 
     private final LLMApiService llmApiService;
-    private final AIConfigService aiConfigService;
     private final AILogService aiLogService;
+    private final AIModelRoutingService aimodelRoutingService;
 
     /**
      * 通用法律咨询
@@ -34,19 +35,13 @@ public class LegalChatService {
         String result = null;
 
         try {
-            // 获取AI配置
-            AIConfig config = aiConfigService.getDefaultConfig();
-            if (config == null) {
-                throw new RuntimeException("AI配置未设置，请先在系统设置中配置AI服务");
-            }
+            AIConfig config = aimodelRoutingService.resolveForUseCase(AIModelUseCase.LEGAL_CHAT);
             modelName = config.getModelName();
 
-            // 构建专业的法律咨询Prompt
             String systemPrompt = buildLegalSystemPrompt();
             String userPrompt = request.getMessage();
 
-            // 调用LLM API
-            result = llmApiService.chatWithConfig(userPrompt, config);
+            result = llmApiService.chatWithConfig(userPrompt, systemPrompt, config);
 
             // 记录日志
             int duration = (int) (System.currentTimeMillis() - startTime);

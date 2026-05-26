@@ -1,4 +1,4 @@
-import request from '@/utils/request'
+import request, { aiHttp } from '@/utils/request'
 
 // 获取知识库列表
 export function getKnowledgeList(params) {
@@ -63,14 +63,11 @@ export function getKnowledgeCategories() {
   })
 }
 
-// AI知识问答 (RAG)
-export function askAI(question, options = {}) {
-  return request({
-    url: '/ai/rag',
+// AI知识问答（后端向量/关键词检索 + LLM，与 RAGKnowledgeController 对齐）
+export function askAI(question) {
+  return aiHttp({
+    url: '/knowledge/rag/search',
     method: 'post',
-    data: {
-      question,
-      ...options
-    }
+    data: { question }
   })
 }

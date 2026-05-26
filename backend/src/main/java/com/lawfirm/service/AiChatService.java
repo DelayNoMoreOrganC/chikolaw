@@ -4,14 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lawfirm.dto.AiChatRequest;
 import com.lawfirm.entity.AIConfig;
+import com.lawfirm.enums.AIModelUseCase;
 import com.lawfirm.entity.Case;
 import com.lawfirm.enums.AIFunctionType;
 import com.lawfirm.repository.CaseRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -24,12 +23,12 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AiChatService {
 
-    private final AIConfigService aiConfigService;
+    private final AIModelRoutingService aimodelRoutingService;
+    private final LLMApiService llmApiService;
     private final AILogService aiLogService;
     private final CaseRepository caseRepository;
     private final CaseRecordService caseRecordService;
     private final CaseTimelineService caseTimelineService;
-    private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -43,19 +42,11 @@ public class AiChatService {
         String result = null;
 
         try {
-            // 获取AI配置
-            AIConfig config = aiConfigService.getDefaultConfig();
-            if (config == null) {
-                throw new RuntimeException("AI配置未设置，请先在系统设置中配置AI服务");
-            }
+            AIConfig config = aimodelRoutingService.resolveForUseCase(AIModelUseCase.GENERAL_CHAT);
             modelName = config.getModelName();
 
-            // 构建Prompt
             String prompt = buildGeneralChatPrompt(message);
-
-            // 调用LLM
-            String response = callLLM(config, prompt);
-            result = response;
+            result = llmApiService.chatWithConfig(prompt, null, config);
 
             // 记录日志
             int duration = (int) (System.currentTimeMillis() - startTime);
@@ -88,11 +79,10 @@ public class AiChatService {
         String result = null;
 
         try {
-            // 获取AI配置
-            AIConfig config = aiConfigService.getDefaultConfig();
-            if (config == null) {
-                throw new RuntimeException("AI配置未设置，请先在系统设置中配置AI服务");
-            }
+            AIModelUseCase useCase = request.getCaseId() != null
+                    ? AIModelUseCase.LEGAL_CHAT
+                    : AIModelUseCase.GENERAL_CHAT;
+            AIConfig config = aimodelRoutingService.resolveForUseCase(useCase);
             modelName = config.getModelName();
 
             // 获取案件信息
@@ -107,8 +97,7 @@ public class AiChatService {
             // 构建Prompt（增强版 - 支持指令识别）
             String prompt = buildCaseChatPromptWithCommandSupport(request.getMessage(), caseContext);
 
-            // 调用LLM
-            String response = callLLM(config, prompt);
+            String response = llmApiService.chatWithConfig(prompt, null, config);
 
             // 解析是否包含指令
             AiCommandResult commandResult = parseAiCommand(response);
@@ -271,196 +260,6 @@ public class AiChatService {
         }
         context.append("案件状态：").append(caseEntity.getStatus()).append("\n");
         return context.toString();
-    }
-
-    /**
-     * 调用LLM API
-     */
-    private String callLLM(AIConfig config, String prompt) {
-        try {
-            String apiUrl = config.getApiUrl();
-            String apiKey = config.getApiKey();
-
-            if ("DEEPSEEK_API".equals(config.getProviderType())) {
-                return callDeepSeek(apiUrl, apiKey, prompt, config);
-            } else if ("OPENAI_API".equals(config.getProviderType())) {
-                return callOpenAI(apiUrl, apiKey, prompt, config);
-            } else if ("LOCAL_QWEN".equals(config.getProviderType())) {
-                return callLocalQwen(apiUrl, prompt, config);
-            } else if ("ollama".equalsIgnoreCase(config.getProviderType())) {
-                return callOllama(apiUrl, prompt, config);
-            } else {
-                throw new RuntimeException("不支持的AI提供商: " + config.getProviderType());
-            }
-        } catch (Exception e) {
-            log.error("调用LLM API失败", e);
-            throw new RuntimeException("调用LLM API失败: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 调用DeepSeek API
-     */
-    private String callDeepSeek(String apiUrl, String apiKey, String prompt, AIConfig config) {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(apiKey);
-
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", config.getModelName() != null ? config.getModelName() : "deepseek-chat");
-            requestBody.put("messages", new Object[]{
-                    Map.of("role", "user", "content", prompt)
-            });
-            requestBody.put("temperature", config.getTemperature());
-            requestBody.put("max_tokens", config.getMaxTokens());
-
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-
-            ResponseEntity<String> response = restTemplate.postForEntity(
-                    apiUrl != null ? apiUrl : "https://api.deepseek.com/v1/chat/completions",
-                    request,
-                    String.class
-            );
-
-            if (response.getStatusCode() == HttpStatus.OK) {
-                JsonNode root = objectMapper.readTree(response.getBody());
-                JsonNode choices = root.path("choices");
-                if (choices != null && choices.isArray() && choices.size() > 0) {
-                    return choices.get(0).path("message").path("content").asText();
-                }
-                return "";
-            } else {
-                throw new RuntimeException("DeepSeek API返回错误: " + response.getStatusCode());
-            }
-        } catch (Exception e) {
-            log.error("调用DeepSeek API失败", e);
-            throw new RuntimeException("调用DeepSeek API失败: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 调用OpenAI API
-     */
-    private String callOpenAI(String apiUrl, String apiKey, String prompt, AIConfig config) {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(apiKey);
-
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", config.getModelName() != null ? config.getModelName() : "gpt-3.5-turbo");
-            requestBody.put("messages", new Object[]{
-                    Map.of("role", "user", "content", prompt)
-            });
-            requestBody.put("temperature", config.getTemperature());
-            requestBody.put("max_tokens", config.getMaxTokens());
-
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-
-            ResponseEntity<String> response = restTemplate.postForEntity(
-                    apiUrl != null ? apiUrl : "https://api.openai.com/v1/chat/completions",
-                    request,
-                    String.class
-            );
-
-            if (response.getStatusCode() == HttpStatus.OK) {
-                JsonNode root = objectMapper.readTree(response.getBody());
-                JsonNode choices = root.path("choices");
-                if (choices != null && choices.isArray() && choices.size() > 0) {
-                    return choices.get(0).path("message").path("content").asText();
-                }
-                return "";
-            } else {
-                throw new RuntimeException("OpenAI API返回错误: " + response.getStatusCode());
-            }
-        } catch (Exception e) {
-            log.error("调用OpenAI API失败", e);
-            throw new RuntimeException("调用OpenAI API失败: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 调用本地Qwen
-     */
-    private String callLocalQwen(String apiUrl, String prompt, AIConfig config) {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("prompt", prompt);
-            requestBody.put("temperature", config.getTemperature());
-            requestBody.put("max_tokens", config.getMaxTokens());
-
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-
-            ResponseEntity<String> response = restTemplate.postForEntity(
-                    apiUrl != null ? apiUrl : "http://localhost:8000/generate",
-                    request,
-                    String.class
-            );
-
-            if (response.getStatusCode() == HttpStatus.OK) {
-                JsonNode root = objectMapper.readTree(response.getBody());
-                return root.path("response").asText();
-            } else {
-                throw new RuntimeException("本地Qwen服务返回错误: " + response.getStatusCode());
-            }
-        } catch (Exception e) {
-            log.error("调用本地Qwen失败", e);
-            throw new RuntimeException("调用本地Qwen失败: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 调用本地Ollama API
-     */
-    private String callOllama(String apiUrl, String prompt, AIConfig config) {
-        try {
-            // 构建Ollama API URL，默认使用localhost:11434
-            String baseUrl = apiUrl != null && !apiUrl.isEmpty()
-                    ? apiUrl
-                    : "http://localhost:11434";
-            String url = baseUrl + "/api/chat";
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", config.getModelName() != null && !config.getModelName().isEmpty()
-                    ? config.getModelName()
-                    : "qwen2.5");
-            requestBody.put("stream", false);
-            requestBody.put("options", new HashMap<String, Object>() {{
-                put("temperature", config.getTemperature() != null ? config.getTemperature() : 0.7);
-                put("num_predict", config.getMaxTokens() != null ? config.getMaxTokens() : 2000);
-            }});
-            requestBody.put("messages", new Object[]{
-                    Map.of("role", "user", "content", prompt)
-            });
-
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-
-            log.info("调用Ollama API: {}, 模型: {}", url, requestBody.get("model"));
-
-            ResponseEntity<String> response = restTemplate.postForEntity(
-                    url,
-                    request,
-                    String.class
-            );
-
-            if (response.getStatusCode() == HttpStatus.OK) {
-                JsonNode root = objectMapper.readTree(response.getBody());
-                JsonNode message = root.path("message");
-                return message.path("content").asText();
-            } else {
-                throw new RuntimeException("Ollama API返回错误: " + response.getStatusCode());
-            }
-        } catch (Exception e) {
-            log.error("调用Ollama API失败", e);
-            throw new RuntimeException("调用Ollama API失败: " + e.getMessage());
-        }
     }
 
     /**

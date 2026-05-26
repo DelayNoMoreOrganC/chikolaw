@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lawfirm.config.LLMProperties;
 import com.lawfirm.dto.AIConfigDTO;
+import com.lawfirm.dto.LlmRecentCallSnapshot;
 import com.lawfirm.entity.AIConfig;
 import com.lawfirm.exception.AIServiceException;
 import lombok.RequiredArgsConstructor;
@@ -13,7 +14,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -30,6 +34,38 @@ public class LLMApiService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final LLMProperties llmProperties;
+
+    private static final int MAX_RECENT_LLM_CALLS = 50;
+    private final ArrayDeque<LlmRecentCallSnapshot> recentLlmCalls = new ArrayDeque<>();
+
+    /**
+     * 最近若干次 LLM 调用摘要（内存环，进程重启后清空），供诊断与排错。
+     */
+    public List<Map<String, Object>> getRecentLlmCallMaps() {
+        synchronized (recentLlmCalls) {
+            List<Map<String, Object>> out = new ArrayList<>();
+            for (LlmRecentCallSnapshot s : recentLlmCalls) {
+                out.add(s.toMap());
+            }
+            return out;
+        }
+    }
+
+    private void pushRecentLlm(LlmRecentCallSnapshot snapshot) {
+        synchronized (recentLlmCalls) {
+            while (recentLlmCalls.size() >= MAX_RECENT_LLM_CALLS) {
+                recentLlmCalls.removeLast();
+            }
+            recentLlmCalls.addFirst(snapshot);
+        }
+    }
+
+    private static String trimErr(String message) {
+        if (message == null) {
+            return null;
+        }
+        return message.length() > 240 ? message.substring(0, 240) + "…" : message;
+    }
 
     /**
      * 调用DeepSeek聊天接口
@@ -78,8 +114,19 @@ public class LLMApiService {
      * @return AI回复
      */
     public String visionWithDeepSeek(String prompt, String imageBase64) {
+        long t0 = System.currentTimeMillis();
         String apiKey = getDeepSeekApiKey();
         if (apiKey == null || apiKey.isEmpty()) {
+            pushRecentLlm(LlmRecentCallSnapshot.builder()
+                    .epochMs(System.currentTimeMillis())
+                    .operation("vision")
+                    .primaryProvider("deepseek")
+                    .fallbackUsed(false)
+                    .durationMs(System.currentTimeMillis() - t0)
+                    .success(false)
+                    .errorHint("DeepSeek API密钥未配置")
+                    .modelHint(llmProperties.getDeepseek().getVisionModel())
+                    .build());
             throw new AIServiceException("DeepSeek API密钥未配置");
         }
 
@@ -95,8 +142,36 @@ public class LLMApiService {
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
-        // 带重试的API调用
-        return callApiWithRetry(url, entity, "DeepSeek Vision");
+        try {
+            String text = callApiWithRetry(url, entity, "DeepSeek Vision");
+            long ms = System.currentTimeMillis() - t0;
+            log.info("LLM vision ok durationMs={} model={}", ms, llmProperties.getDeepseek().getVisionModel());
+            pushRecentLlm(LlmRecentCallSnapshot.builder()
+                    .epochMs(System.currentTimeMillis())
+                    .operation("vision")
+                    .primaryProvider("deepseek")
+                    .fallbackUsed(false)
+                    .durationMs(ms)
+                    .success(true)
+                    .errorHint(null)
+                    .modelHint(llmProperties.getDeepseek().getVisionModel())
+                    .build());
+            return text;
+        } catch (AIServiceException ex) {
+            long ms = System.currentTimeMillis() - t0;
+            log.warn("LLM vision failed durationMs={} err={}", ms, ex.getMessage());
+            pushRecentLlm(LlmRecentCallSnapshot.builder()
+                    .epochMs(System.currentTimeMillis())
+                    .operation("vision")
+                    .primaryProvider("deepseek")
+                    .fallbackUsed(false)
+                    .durationMs(ms)
+                    .success(false)
+                    .errorHint(trimErr(ex.getMessage()))
+                    .modelHint(llmProperties.getDeepseek().getVisionModel())
+                    .build());
+            throw ex;
+        }
     }
 
     /**
@@ -146,6 +221,13 @@ public class LLMApiService {
      * @return AI回复
      */
     public String chatWithConfig(String prompt, AIConfig config) {
+        return chatWithConfig(prompt, null, config);
+    }
+
+    /**
+     * @param systemPrompt 优先使用；为空时使用 {@link AIConfig#getSystemPrompt()}
+     */
+    public String chatWithConfig(String prompt, String systemPrompt, AIConfig config) {
         if (config == null) {
             throw new AIServiceException("AI配置不能为空");
         }
@@ -155,25 +237,146 @@ public class LLMApiService {
             throw new AIServiceException("AI提供商类型不能为空");
         }
 
+        String mergedSystem = systemPrompt;
+        if (mergedSystem == null || mergedSystem.isEmpty()) {
+            mergedSystem = config.getSystemPrompt();
+        }
+
+        long t0 = System.currentTimeMillis();
+        String modelHint = config.getModelName() != null ? config.getModelName() : provider;
+        try {
+            String result = chatByProvider(provider, prompt, mergedSystem, config);
+            long ms = System.currentTimeMillis() - t0;
+            log.info("LLM chat ok provider={} durationMs={} model={}", provider, ms, modelHint);
+            pushRecentLlm(LlmRecentCallSnapshot.builder()
+                    .epochMs(System.currentTimeMillis())
+                    .operation("chat")
+                    .primaryProvider(provider)
+                    .fallbackUsed(false)
+                    .durationMs(ms)
+                    .success(true)
+                    .errorHint(null)
+                    .modelHint(modelHint)
+                    .build());
+            return result;
+        } catch (AIServiceException ex) {
+            if (shouldFallback(provider)) {
+                log.warn("主模型调用失败，准备降级到 {}。provider={}, err={}",
+                        llmProperties.getFallback().getProvider(), provider, ex.getMessage());
+                try {
+                    String result = chatWithFallbackProvider(prompt, mergedSystem);
+                    long ms = System.currentTimeMillis() - t0;
+                    log.info("LLM chat ok after fallback durationMs={} primary={}", ms, provider);
+                    pushRecentLlm(LlmRecentCallSnapshot.builder()
+                            .epochMs(System.currentTimeMillis())
+                            .operation("chat")
+                            .primaryProvider(provider)
+                            .fallbackUsed(true)
+                            .durationMs(ms)
+                            .success(true)
+                            .errorHint(trimErr(ex.getMessage()))
+                            .modelHint("fallback:" + llmProperties.getFallback().getProvider())
+                            .build());
+                    return result;
+                } catch (Exception ex2) {
+                    long ms = System.currentTimeMillis() - t0;
+                    log.error("LLM fallback 仍失败 primary={} err={}", provider, ex2.getMessage());
+                    pushRecentLlm(LlmRecentCallSnapshot.builder()
+                            .epochMs(System.currentTimeMillis())
+                            .operation("chat")
+                            .primaryProvider(provider)
+                            .fallbackUsed(true)
+                            .durationMs(ms)
+                            .success(false)
+                            .errorHint(trimErr(ex2.getMessage()))
+                            .modelHint(modelHint)
+                            .build());
+                    if (ex2 instanceof RuntimeException) {
+                        throw (RuntimeException) ex2;
+                    }
+                    throw new AIServiceException("LLM 调用失败: " + ex2.getMessage(), ex2);
+                }
+            }
+            long ms = System.currentTimeMillis() - t0;
+            pushRecentLlm(LlmRecentCallSnapshot.builder()
+                    .epochMs(System.currentTimeMillis())
+                    .operation("chat")
+                    .primaryProvider(provider)
+                    .fallbackUsed(false)
+                    .durationMs(ms)
+                    .success(false)
+                    .errorHint(trimErr(ex.getMessage()))
+                    .modelHint(modelHint)
+                    .build());
+            throw ex;
+        }
+    }
+
+    private String chatByProvider(String provider, String prompt, String systemPrompt, AIConfig config) {
         switch (provider.toLowerCase()) {
             case "deepseek":
-                return chatWithDeepSeekByConfig(prompt, config);
+                return chatWithDeepSeekByConfig(prompt, systemPrompt, config);
             case "qwen":
             case "aliyun":
-                return chatWithQwenByConfig(prompt, config);
+                return chatWithQwenByConfig(prompt, systemPrompt, config);
             case "openai":
-                return chatWithOpenAIByConfig(prompt, config);
+            case "lmstudio":
+                return chatWithOpenAIByConfig(prompt, systemPrompt, config);
             case "ollama":
-                return chatWithOllamaByConfig(prompt, config);
+                return chatWithOllamaByConfig(prompt, systemPrompt, config);
             default:
                 throw new AIServiceException("不支持的AI提供商: " + provider);
+        }
+    }
+
+    private boolean shouldFallback(String provider) {
+        if (!llmProperties.getFallback().isEnabled()) {
+            return false;
+        }
+        // 云端已失败时不再递归降级
+        return provider != null && !"deepseek".equalsIgnoreCase(provider);
+    }
+
+    private String chatWithFallbackProvider(String prompt, String systemPrompt) {
+        String fallbackProvider = llmProperties.getFallback().getProvider();
+        if (fallbackProvider == null || fallbackProvider.isEmpty()) {
+            fallbackProvider = "deepseek";
+        }
+        if (!"deepseek".equalsIgnoreCase(fallbackProvider)) {
+            throw new AIServiceException("当前仅支持降级到 deepseek，实际配置: " + fallbackProvider);
+        }
+
+        AIConfig deepseekConfig = findEnabledProviderConfig("deepseek");
+        if (deepseekConfig != null) {
+            return chatWithDeepSeekByConfig(prompt, systemPrompt, deepseekConfig);
+        }
+
+        // 无数据库配置时，使用 yml/env 默认 DeepSeek 配置
+        AIConfig temp = new AIConfig();
+        temp.setProviderType("deepseek");
+        temp.setApiUrl(llmProperties.getDeepseek().getBaseUrl());
+        temp.setModelName(llmProperties.getDeepseek().getChatModel());
+        temp.setTemperature(llmProperties.getDeepseek().getTemperature());
+        temp.setMaxTokens(llmProperties.getDeepseek().getMaxTokens());
+        return chatWithDeepSeekByConfig(prompt, systemPrompt, temp);
+    }
+
+    private AIConfig findEnabledProviderConfig(String providerType) {
+        try {
+            return aiConfigService.getConfigsByProvider(providerType).stream()
+                    .filter(c -> Boolean.TRUE.equals(c.getIsEnabled()))
+                    .findFirst()
+                    .orElse(null);
+        } catch (Exception e) {
+            log.debug("读取{}配置失败: {}", providerType, e.getMessage());
+            return null;
         }
     }
 
     /**
      * 使用配置中的DeepSeek服务进行对话
      */
-    private String chatWithDeepSeekByConfig(String prompt, AIConfig config) {
+    private String chatWithDeepSeekByConfig(String prompt, String systemPrompt, AIConfig config) {
         String apiKey = config.getApiKey();
         if (apiKey == null || apiKey.isEmpty()) {
             apiKey = getDeepSeekApiKey();
@@ -192,26 +395,28 @@ public class LLMApiService {
             model = llmProperties.getDeepseek().getChatModel();
         }
 
-        String url = baseUrl + "/v1/chat/completions";
+        String url = baseUrl.replaceAll("/+$", "") + "/v1/chat/completions";
 
-        // 构建请求体
-        Map<String, Object> requestBody = buildChatRequest(prompt, null, model);
+        double temperature = config.getTemperature() != null
+                ? config.getTemperature() : llmProperties.getDeepseek().getTemperature();
+        int maxTokens = config.getMaxTokens() != null
+                ? config.getMaxTokens() : llmProperties.getDeepseek().getMaxTokens();
 
-        // 设置请求头
+        Map<String, Object> requestBody = buildChatRequest(prompt, systemPrompt, model, temperature, maxTokens);
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(apiKey);
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
-        // 带重试的API调用
         return callApiWithRetry(url, entity, "DeepSeek");
     }
 
     /**
      * 使用配置中的通义千问服务进行对话
      */
-    private String chatWithQwenByConfig(String prompt, AIConfig config) {
+    private String chatWithQwenByConfig(String prompt, String systemPrompt, AIConfig config) {
         String apiKey = config.getApiKey();
         if (apiKey == null || apiKey.isEmpty()) {
             apiKey = llmProperties.getQwen().getApiKey();
@@ -230,10 +435,9 @@ public class LLMApiService {
             model = llmProperties.getQwen().getModel();
         }
 
-        String url = baseUrl + "/api/v1/services/aigc/text-generation/generation";
+        String url = baseUrl.replaceAll("/+$", "") + "/api/v1/services/aigc/text-generation/generation";
 
-        // 构建请求体
-        Map<String, Object> requestBody = buildQwenRequest(prompt, null, model);
+        Map<String, Object> requestBody = buildQwenRequest(prompt, systemPrompt, model);
 
         // 设置请求头
         HttpHeaders headers = new HttpHeaders();
@@ -249,15 +453,63 @@ public class LLMApiService {
     /**
      * 使用配置中的OpenAI服务进行对话
      */
-    private String chatWithOpenAIByConfig(String prompt, AIConfig config) {
-        // TODO: 实现OpenAI API调用
-        throw new AIServiceException("OpenAI API尚未实现");
+    /**
+     * OpenAI 兼容接口：适用于 LM Studio、vLLM、部分本地网关等（/v1/chat/completions）
+     */
+    private String chatWithOpenAIByConfig(String prompt, String systemPrompt, AIConfig config) {
+        String baseUrl = config.getApiUrl();
+        if (baseUrl == null || baseUrl.isEmpty()) {
+            baseUrl = llmProperties.getLmstudio().getBaseUrl();
+        }
+
+        String model = config.getModelName();
+        if (model == null || model.isEmpty()) {
+            model = llmProperties.getLmstudio().getChatModel();
+        }
+        if (model == null || model.isEmpty()) {
+            throw new AIServiceException("未配置模型名称：请在 AI 配置中填写与 LM Studio 一致的 model id");
+        }
+
+        String apiKey = config.getApiKey();
+        if (apiKey == null || apiKey.isEmpty()) {
+            apiKey = llmProperties.getLmstudio().getApiKey();
+        }
+        if (apiKey == null || apiKey.isEmpty()) {
+            apiKey = "lm-studio";
+        }
+
+        double temperature = config.getTemperature() != null
+                ? config.getTemperature() : llmProperties.getLmstudio().getTemperature();
+        int maxTokens = config.getMaxTokens() != null
+                ? config.getMaxTokens() : llmProperties.getLmstudio().getMaxTokens();
+
+        String url = openAiCompatibleChatCompletionsUrl(baseUrl);
+        Map<String, Object> requestBody = buildChatRequest(prompt, systemPrompt, model, temperature, maxTokens);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(apiKey);
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+        return callApiWithRetry(url, entity, "OpenAI-Compatible");
+    }
+
+    private static String openAiCompatibleChatCompletionsUrl(String baseUrl) {
+        String t = baseUrl == null ? "" : baseUrl.trim().replaceAll("/+$", "");
+        if (t.isEmpty()) {
+            t = "http://127.0.0.1:1234";
+        }
+        if (t.endsWith("/v1")) {
+            return t + "/chat/completions";
+        }
+        return t + "/v1/chat/completions";
     }
 
     /**
      * 使用配置中的Ollama服务进行对话
      */
-    private String chatWithOllamaByConfig(String prompt, AIConfig config) {
+    private String chatWithOllamaByConfig(String prompt, String systemPrompt, AIConfig config) {
         String baseUrl = config.getApiUrl();
         if (baseUrl == null || baseUrl.isEmpty()) {
             baseUrl = "http://localhost:11434";
@@ -268,9 +520,20 @@ public class LLMApiService {
             model = "qwen2.5";
         }
 
-        String url = baseUrl + "/api/chat";
+        String url = baseUrl.replaceAll("/+$", "") + "/api/chat";
 
-        // 构建请求体 - Ollama使用特定的API格式
+        java.util.List<Map<String, String>> messages = new java.util.ArrayList<>();
+        if (systemPrompt != null && !systemPrompt.isEmpty()) {
+            messages.add(new HashMap<String, String>() {{
+                put("role", "system");
+                put("content", systemPrompt);
+            }});
+        }
+        messages.add(new HashMap<String, String>() {{
+            put("role", "user");
+            put("content", prompt);
+        }});
+
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", model);
         requestBody.put("stream", false);
@@ -278,20 +541,13 @@ public class LLMApiService {
             put("temperature", config.getTemperature() != null ? config.getTemperature() : 0.1);
             put("num_predict", config.getMaxTokens() != null ? config.getMaxTokens() : 2000);
         }});
-        requestBody.put("messages", new Object[]{
-                new HashMap<String, String>() {{
-                    put("role", "user");
-                    put("content", prompt);
-                }}
-        });
+        requestBody.put("messages", messages.toArray());
 
-        // 设置请求头
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
-        // 带重试的API调用
         return callOllamaApiWithRetry(url, entity, "Ollama");
     }
 
@@ -435,12 +691,18 @@ public class LLMApiService {
      * 构建聊天请求体
      */
     private Map<String, Object> buildChatRequest(String prompt, String systemPrompt, String model) {
+        return buildChatRequest(prompt, systemPrompt, model,
+                llmProperties.getDeepseek().getTemperature(),
+                llmProperties.getDeepseek().getMaxTokens());
+    }
+
+    private Map<String, Object> buildChatRequest(String prompt, String systemPrompt, String model,
+                                                 double temperature, int maxTokens) {
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", model);
-        requestBody.put("temperature", llmProperties.getDeepseek().getTemperature());
-        requestBody.put("max_tokens", llmProperties.getDeepseek().getMaxTokens());
+        requestBody.put("temperature", temperature);
+        requestBody.put("max_tokens", maxTokens);
 
-        // 构建消息数组
         Map<String, Object>[] messages;
         if (systemPrompt != null && !systemPrompt.isEmpty()) {
             messages = new Map[]{

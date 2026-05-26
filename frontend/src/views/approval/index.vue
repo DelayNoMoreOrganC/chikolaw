@@ -21,9 +21,9 @@
             :header-cell-style="{ background: '#f0f5ff', color: '#333', fontWeight: '600' }"
             :row-class-name="tableRowClassName">
             <el-table-column prop="title" label="审批标题" width="200" sortable />
-            <el-table-column prop="type" label="审批类型" width="120">
+            <el-table-column prop="approvalType" label="审批类型" width="120">
               <template #default="{ row }">
-                <el-tag>{{ row.type }}</el-tag>
+                <el-tag>{{ formatApprovalType(row.approvalType) }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="applicant" label="申请人" width="100" sortable />
@@ -61,7 +61,11 @@
             :header-cell-style="{ background: '#f0f5ff', color: '#333', fontWeight: '600' }"
             :row-class-name="tableRowClassName">
             <el-table-column prop="title" label="审批标题" width="200" sortable />
-            <el-table-column prop="type" label="审批类型" width="120" />
+            <el-table-column prop="approvalType" label="审批类型" width="120">
+              <template #default="{ row }">
+                <el-tag>{{ formatApprovalType(row.approvalType) }}</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="applicant" label="申请人" width="100" sortable />
             <el-table-column prop="processTime" label="处理时间" width="160" sortable />
             <el-table-column prop="result" label="处理结果" width="80">
@@ -88,7 +92,11 @@
             :header-cell-style="{ background: '#f0f5ff', color: '#333', fontWeight: '600' }"
             :row-class-name="tableRowClassName">
             <el-table-column prop="title" label="审批标题" width="200" sortable />
-            <el-table-column prop="type" label="审批类型" width="120" />
+            <el-table-column prop="approvalType" label="审批类型" width="120">
+              <template #default="{ row }">
+                <el-tag>{{ formatApprovalType(row.approvalType) }}</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="applicant" label="申请人" width="100" sortable />
             <el-table-column prop="applyTime" label="申请时间" width="160" sortable />
             <el-table-column prop="currentNode" label="当前节点" width="120" />
@@ -107,15 +115,24 @@
                 <span v-else>{{ row.caseName || '-' }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="200">
+            <el-table-column label="操作" width="260">
               <template #default="{ row }">
                 <el-button link type="primary" size="small">查看</el-button>
                 <el-button link type="primary" size="small">进度</el-button>
                 <el-button
+                  v-if="row.approvalType === 'CASE_FILING' && isApproved(row)"
+                  link
+                  type="success"
+                  size="small"
+                  @click="goCreateCaseFromFiling(row)"
+                >
+                  去立案
+                </el-button>
+                <el-button
                   link
                   type="warning"
                   size="small"
-                  :disabled="row.status !== '审批中'"
+                  :disabled="row.status !== '审批中' && row.status !== 'PENDING' && row.statusDesc !== '待审批'"
                   @click="handleWithdraw(row)"
                 >
                   撤回
@@ -136,12 +153,12 @@
 
         <el-form-item label="审批类型" required>
           <el-select v-model="approvalForm.approvalType" placeholder="请选择审批类型" style="width: 100%">
-            <el-option label="用印申请" value="SEAL" />
-            <el-option label="报销申请" value="REIMBURSEMENT" />
-            <el-option label="请假申请" value="LEAVE" />
-            <el-option label="出差申请" value="BUSINESS_TRIP" />
-            <el-option label="合同审批" value="CONTRACT" />
-            <el-option label="其他审批" value="OTHER" />
+            <el-option
+              v-for="t in approvalTypeOptions"
+              :key="t.code"
+              :label="t.name"
+              :value="t.code"
+            />
           </el-select>
         </el-form-item>
 
@@ -200,7 +217,8 @@ import {
   approveApproval,
   rejectApproval,
   transferApproval,
-  withdrawApproval
+  withdrawApproval,
+  getApprovalTypes
 } from '@/api/approval'
 import { getCaseList } from '@/api/case'
 
@@ -226,6 +244,72 @@ const approvalForm = ref({
 
 // 案件列表
 const caseList = ref([])
+const approvalTypeOptions = ref([])
+
+const APPROVAL_TYPE_FALLBACK = {
+  SEAL: '用印申请',
+  REIMBURSEMENT: '费用报销',
+  INVOICE: '开票申请',
+  LEAVE: '请假出差',
+  PURCHASE: '采购申请',
+  LICENSE: '证照借用',
+  CASE_FILING: '立案申请'
+}
+
+const formatApprovalType = (code) => {
+  if (!code) return '-'
+  const hit = approvalTypeOptions.value.find((t) => t.code === code)
+  return hit?.name || APPROVAL_TYPE_FALLBACK[code] || code
+}
+
+const parseIntakePendingId = (attachments) => {
+  if (!attachments) return null
+  try {
+    const obj = typeof attachments === 'string' ? JSON.parse(attachments) : attachments
+    return obj?.intakePendingId ?? null
+  } catch {
+    return null
+  }
+}
+
+const isApproved = (row) =>
+  row.status === 'APPROVED' || row.status === '已同意' || row.statusDesc === '已同意'
+
+const goCreateCaseFromFiling = async (row) => {
+  const pendingId = parseIntakePendingId(row.attachments)
+  if (!pendingId) {
+    ElMessage.warning('未找到关联的卷宗暂存编号')
+    return
+  }
+  router.push({ path: '/case/create', query: { intakePendingId: String(pendingId) } })
+}
+
+const loadApprovalTypes = async () => {
+  try {
+    const res = await getApprovalTypes()
+    if (res.code === 200 || res.success) {
+      approvalTypeOptions.value = res.data || []
+    }
+  } catch {
+    approvalTypeOptions.value = Object.entries(APPROVAL_TYPE_FALLBACK).map(([code, name]) => ({
+      code,
+      name
+    }))
+  }
+}
+
+const promptGoCreateCaseAfterFiling = async (pendingId) => {
+  try {
+    await ElMessageBox.confirm(
+      '识别信息将自动预填，建案成功后卷宗文件将自动归入新案件卷宗。',
+      '立案审批已通过',
+      { confirmButtonText: '去新建案件', cancelButtonText: '稍后', type: 'success' }
+    )
+    router.push({ path: '/case/create', query: { intakePendingId: String(pendingId) } })
+  } catch {
+    /* 用户选择稍后 */
+  }
+}
 
 // 跳转到案件详情
 const goToCase = (caseId) => {
@@ -234,6 +318,7 @@ const goToCase = (caseId) => {
 
 // 页面加载时获取数据
 onMounted(() => {
+  loadApprovalTypes()
   fetchApprovalList()
 
   // 检查是否需要自动创建审批（从案件页面跳转过来）
@@ -298,7 +383,14 @@ const handleSubmitApproval = async () => {
   }
 
   try {
-    await createApproval(approvalForm.value)
+    const { title, approvalType, caseId, urgency, description } = approvalForm.value
+    await createApproval({
+      title,
+      approvalType,
+      caseId,
+      urgency,
+      content: description
+    })
     ElMessage.success('审批提交成功')
     approvalDialogVisible.value = false
     fetchApprovalList()
@@ -324,7 +416,12 @@ const handleApprove = async (row) => {
     const response = await approveApproval(row.id, { comments: value || '' })
     if (response.success) {
       ElMessage.success('审批已同意')
-      // 刷新列表
+      if (row.approvalType === 'CASE_FILING') {
+        const pendingId = parseIntakePendingId(row.attachments)
+        if (pendingId) {
+          await promptGoCreateCaseAfterFiling(pendingId)
+        }
+      }
       fetchApprovalList()
     } else {
       ElMessage.error(response.message || '操作失败')
@@ -432,8 +529,11 @@ const fetchApprovalList = async () => {
   try {
     loading.value = true
     const res = await getApprovalList({
-      status: activeTab.value === 'pending' ? 'PENDING' :
-             activeTab.value === 'processed' ? 'APPROVED' : 'ALL',
+      status: searchFilters.value.status
+        || (activeTab.value === 'pending' ? 'PENDING'
+          : activeTab.value === 'processed' ? 'APPROVED' : 'ALL'),
+      approvalType: searchFilters.value.approvalType || undefined,
+      keyword: searchFilters.value.keyword || undefined,
       caseId: route.query.caseId || null,
       page: 1,
       size: 100
@@ -455,9 +555,11 @@ const fetchApprovalList = async () => {
   }
 }
 
+const searchFilters = ref({})
+
 const handleSearch = (filters) => {
-  // 搜索审批 - 应用筛选条件
-  ElMessage.success('筛选功能已就绪，待接入API')
+  searchFilters.value = filters || {}
+  fetchApprovalList()
 }
 
 const handleReset = () => {

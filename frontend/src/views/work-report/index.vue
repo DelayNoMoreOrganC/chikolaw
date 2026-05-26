@@ -280,7 +280,16 @@ import {
   OfficeBuilding, Calendar, DocumentCopy
 } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
-import request from '@/utils/request'
+import {
+  listWorkReports,
+  getMyWorkReports,
+  createWorkReport,
+  updateWorkReport,
+  submitWorkReport,
+  reviewWorkReport,
+  deleteWorkReport
+} from '@/api/workReport'
+import { pageRecords, pageTotal } from '@/utils/page'
 
 const router = useRouter()
 
@@ -338,20 +347,12 @@ const loadReports = async () => {
       page: currentPage.value - 1,
       size: pageSize.value
     }
-
-    let url = '/work-reports'
-    if (activeType.value === 'DRAFT' || activeType.value === 'SUBMITTED' || activeType.value === 'APPROVED') {
-      url = `/work-reports/status?status=${activeType.value}`
+    if (activeType.value) {
+      params.status = activeType.value
     }
-
-    const { data } = await request({
-      url,
-      method: 'get',
-      params
-    })
-
-    reports.value = data.content || []
-    total.value = data.totalElements || 0
+    const res = await listWorkReports(params)
+    reports.value = pageRecords(res)
+    total.value = pageTotal(res)
   } catch (error) {
     console.error('加载汇报列表失败:', error)
     ElMessage.error('加载失败')
@@ -364,14 +365,9 @@ const loadMyReports = async () => {
     activeType.value = ''
     currentPage.value = 1
 
-    const { data } = await request({
-      url: '/work-reports/my',
-      method: 'get',
-      params: { page: 0, size: 100 }
-    })
-
-    reports.value = data.content || []
-    total.value = data.totalElements || 0
+    const res = await getMyWorkReports({ page: 0, size: 100 })
+    reports.value = pageRecords(res)
+    total.value = pageTotal(res)
   } catch (error) {
     console.error('加载我的汇报失败:', error)
     ElMessage.error('加载失败')
@@ -414,18 +410,10 @@ const handleSave = async () => {
   saving.value = true
   try {
     if (isEdit.value) {
-      await request({
-        url: `/work-reports/${currentReportId.value}`,
-        method: 'put',
-        data: formData.value
-      })
+      await updateWorkReport(currentReportId.value, formData.value)
       ElMessage.success('更新成功')
     } else {
-      await request({
-        url: '/work-reports',
-        method: 'post',
-        data: formData.value
-      })
+      await createWorkReport(formData.value)
       ElMessage.success('创建成功')
     }
 
@@ -444,10 +432,7 @@ const handleSubmit = async (report) => {
   try {
     await ElMessageBox.confirm('确认提交此汇报吗？提交后将无法修改。', '提示')
 
-    await request({
-      url: `/work-reports/${report.id}/submit`,
-      method: 'put'
-    })
+    await submitWorkReport(report.id)
 
     ElMessage.success('提交成功')
     loadReports()
@@ -466,10 +451,7 @@ const handleDelete = async (report) => {
       type: 'warning'
     })
 
-    await request({
-      url: `/work-reports/${report.id}`,
-      method: 'delete'
-    })
+    await deleteWorkReport(report.id)
 
     ElMessage.success('删除成功')
     loadReports()
@@ -495,14 +477,11 @@ const handleReview = (report) => {
 const handleReviewSubmit = async () => {
   reviewing.value = true
   try {
-    await request({
-      url: `/work-reports/${currentReportId.value}/review`,
-      method: 'put',
-      params: {
-        status: reviewForm.value.status,
-        comment: reviewForm.value.comment
-      }
-    })
+    await reviewWorkReport(
+      currentReportId.value,
+      reviewForm.value.status,
+      reviewForm.value.comment
+    )
 
     ElMessage.success('审核完成')
     reviewDialogVisible.value = false

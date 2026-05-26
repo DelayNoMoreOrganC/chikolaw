@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * AI配置服务
@@ -90,6 +91,26 @@ public class AIConfigService {
     public AIConfig getDefaultConfig() {
         return aiConfigRepository.findByIsDefaultTrueAndDeletedFalse()
                 .orElseThrow(() -> new RuntimeException("未配置默认AI"));
+    }
+
+    /**
+     * 默认 AI 配置（可能为空）
+     */
+    public Optional<AIConfig> findDefaultConfigOptional() {
+        return aiConfigRepository.findByIsDefaultTrueAndDeletedFalse();
+    }
+
+    /**
+     * 在已启用配置中按 provider 匹配（忽略大小写）
+     */
+    public Optional<AIConfig> findFirstEnabledByProviderIgnoreCase(String providerType) {
+        if (providerType == null || providerType.isBlank()) {
+            return Optional.empty();
+        }
+        String want = providerType.trim();
+        return getAllConfigs().stream()
+                .filter(c -> c.getProviderType() != null && want.equalsIgnoreCase(c.getProviderType()))
+                .findFirst();
     }
 
     /**

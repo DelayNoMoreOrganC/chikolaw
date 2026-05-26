@@ -50,4 +50,11 @@ public class CaseDocument extends LogicalDeleteEntity {
 
     @Column(name = "ocr_result")
     private String ocrResult;
+
+    /** 版本号，同案件同名文件递增 */
+    @Column(name = "version_no")
+    private Integer versionNo = 1;
+
+    @Column(name = "content_type", length = 128)
+    private String contentType;
 }

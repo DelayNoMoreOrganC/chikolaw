@@ -270,6 +270,7 @@ import {
 } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import DataTable from '@/components/DataTable.vue'
+import { getStagesByCaseType } from '@/config/case-lifecycle'
 import {
   getCaseList,
   deleteCase,
@@ -315,16 +316,8 @@ const lawyerList = ref([
 // 法院列表
 const courtList = ref([])
 
-// 案件阶段
-const caseStages = [
-  { key: 'consult', label: '咨询' },
-  { key: 'contract', label: '签约' },
-  { key: 'filing', label: '立案' },
-  { key: 'trial1', label: '一审' },
-  { key: 'trial2', label: '二审' },
-  { key: 'execution', label: '执行' },
-  { key: 'closed', label: '结案' }
-]
+// 看板列：默认民事流程（与后端 CaseFlowDefinitionService 一致）
+const caseStages = computed(() => getStagesByCaseType(filterForm.caseType || 'CIVIL'))
 
 // 获取案件列表
 const fetchCaseList = async () => {
@@ -441,18 +434,9 @@ const getTypeTagType = (type) => {
 
 // 看板视图：根据阶段筛选案件
 const getCasesByStage = (stageKey) => {
-  return caseList.value.filter(item => {
-    const stageMap = {
-      'consult': '咨询',
-      'contract': '签约',
-      'filing': '立案',
-      'trial1': '一审',
-      'trial2': '二审',
-      'execution': '执行',
-      'closed': '结案'
-    }
-    return item.currentStage === stageMap[stageKey]
-  })
+  const stage = caseStages.value.find(s => s.key === stageKey)
+  if (!stage) return []
+  return caseList.value.filter(item => item.currentStage === stage.label)
 }
 
 // 看板视图：获取阶段案件数

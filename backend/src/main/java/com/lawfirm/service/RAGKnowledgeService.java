@@ -1,20 +1,18 @@
 package com.lawfirm.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.JsonObject;
 import com.lawfirm.entity.AIConfig;
 import com.lawfirm.entity.KnowledgeArticle;
+import com.lawfirm.enums.AIModelUseCase;
 import com.lawfirm.repository.KnowledgeArticleRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.PostConstruct;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -31,12 +29,11 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class RAGKnowledgeService {
 
-    private final AIConfigService aiConfigService;
+    private final AIModelRoutingService aimodelRoutingService;
+    private final LLMApiService llmApiService;
     private final KnowledgeArticleRepository knowledgeArticleRepository;
     private final EmbeddingService embeddingService;
     private final QdrantVectorService qdrantVectorService;
-    private final RestTemplate restTemplate = new RestTemplate();
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @PostConstruct
     public void init() {
@@ -56,26 +53,30 @@ public class RAGKnowledgeService {
         log.info("RAG search question: {}", question);
 
         try {
-            // Step 1: 向量检索相关文档
-            List<ScoredDocument> scoredDocs = searchRelevantDocumentsWithScore(question);
+            SearchOutcome outcome = searchRelevantDocumentsWithScore(question);
+            List<ScoredDocument> scoredDocs = outcome.documents;
+            String retrievalMode = outcome.retrievalMode;
 
             if (scoredDocs.isEmpty()) {
                 Map<String, Object> emptyResult = new HashMap<>();
-                emptyResult.put("answer", "未找到相关文档。请尝试其他关键词。");
+                if ("NO_HITS".equals(retrievalMode)) {
+                    emptyResult.put("answer",
+                            "知识库中未检索到与问题相关的文章。可尝试缩短问题、换关键词，或检查是否已有对应知识库文章。");
+                } else {
+                    emptyResult.put("answer", "未找到相关文档。请尝试其他关键词。");
+                }
                 emptyResult.put("sources", List.of());
                 emptyResult.put("hasAnswer", false);
+                emptyResult.put("retrievalMode", retrievalMode);
+                emptyResult.put("documentCount", 0);
                 return emptyResult;
             }
 
-            // Step 2: 构建增强上下文（包含相关性分数）
-            String context = buildEnhancedContext(scoredDocs);
-
-            // Step 3: 通过LLM生成答案
+            String context = buildEnhancedContext(question, scoredDocs);
             String answer = generateAnswer(question, context);
 
-            // Step 4: 提取源信息（包含相关性分数）
             List<Map<String, Object>> sources = scoredDocs.stream()
-                .limit(3)
+                .limit(5)
                 .map(scoredDoc -> {
                     Map<String, Object> sourceInfo = new HashMap<>();
                     KnowledgeArticle doc = scoredDoc.document;
@@ -87,9 +88,10 @@ public class RAGKnowledgeService {
                     String summary = doc.getSummary();
                     if (summary == null && doc.getContent() != null) {
                         String content = doc.getContent();
-                        summary = content.length() > 100 ? content.substring(0, 100) + "..." : content;
+                        summary = content.length() > 120 ? content.substring(0, 120) + "..." : content;
                     }
                     sourceInfo.put("summary", summary != null ? summary : "");
+                    sourceInfo.put("citationSnippet", extractCitationSnippet(doc, question));
 
                     return sourceInfo;
                 })
@@ -100,15 +102,19 @@ public class RAGKnowledgeService {
             result.put("sources", sources);
             result.put("hasAnswer", true);
             result.put("documentCount", scoredDocs.size());
-            result.put("searchMethod", "Vector Search (Qdrant + Aliyun Embedding)");
+            result.put("retrievalMode", retrievalMode);
+            result.put("searchMethod", "VECTOR".equals(retrievalMode)
+                    ? "向量检索 (Qdrant + Embedding)"
+                    : "关键词检索（向量无命中或降级）");
             return result;
 
         } catch (Exception e) {
             log.error("RAG search failed", e);
             Map<String, Object> errorResult = new HashMap<>();
-            errorResult.put("answer", "系统暂时不可用，请稍后重试。");
+            errorResult.put("answer", "系统暂时不可用，请稍后重试。若持续出现，请联系管理员查看向量服务与 Embedding 配置。");
             errorResult.put("error", e.getMessage());
             errorResult.put("hasAnswer", false);
+            errorResult.put("retrievalMode", "ERROR");
             return errorResult;
         }
     }
@@ -122,31 +128,20 @@ public class RAGKnowledgeService {
      * 3. 检索速度 < 500ms
      * 4. 准确率 mAP@10 > 0.85
      */
-    private List<ScoredDocument> searchRelevantDocumentsWithScore(String question) {
+    private SearchOutcome searchRelevantDocumentsWithScore(String question) {
         long startTime = System.currentTimeMillis();
 
         try {
-            // Step 1: 生成问题的向量表示
             List<Double> questionVector = embeddingService.embedText(question);
 
-            // Step 2: 向量检索（Top 5，相似度阈值0.6）
             List<QdrantVectorService.SearchResult> searchResults =
-                    qdrantVectorService.search(questionVector, 5, 0.6);
+                    qdrantVectorService.search(questionVector, 8, 0.55);
 
-            if (searchResults.isEmpty()) {
-                log.info("向量检索未找到相关文档: question={}", question);
-                return Collections.emptyList();
-            }
-
-            // Step 3: 根据检索结果获取完整文档
             List<ScoredDocument> scoredDocs = new ArrayList<>();
             for (QdrantVectorService.SearchResult result : searchResults) {
                 try {
-                    // 从payload中解析articleId
                     JsonObject payload = new com.google.gson.Gson().fromJson(result.payload, JsonObject.class);
                     long articleId = payload.get("articleId").getAsLong();
-
-                    // 获取完整文档
                     KnowledgeArticle doc = knowledgeArticleRepository.findById(articleId).orElse(null);
                     if (doc != null) {
                         scoredDocs.add(new ScoredDocument(doc, result.score));
@@ -157,15 +152,29 @@ public class RAGKnowledgeService {
             }
 
             long duration = System.currentTimeMillis() - startTime;
-            log.info("向量检索完成: 问题={}, 检索结果数={}, 最终文档数={}, 耗时={}ms",
+            log.info("向量检索: 问题={}, qdrant条数={}, 解析文档数={}, 耗时={}ms",
                     question, searchResults.size(), scoredDocs.size(), duration);
 
-            return scoredDocs;
+            if (searchResults.isEmpty() || scoredDocs.isEmpty()) {
+                List<ScoredDocument> kw = fallbackToKeywordSearch(question);
+                if (kw.isEmpty()) {
+                    return new SearchOutcome(Collections.emptyList(), "NO_HITS");
+                }
+                String mode = searchResults.isEmpty()
+                        ? "KEYWORD_AFTER_VECTOR_EMPTY"
+                        : "KEYWORD_AFTER_VECTOR_MISS";
+                return new SearchOutcome(kw, mode);
+            }
+
+            return new SearchOutcome(scoredDocs, "VECTOR");
 
         } catch (Exception e) {
             log.error("向量检索失败，降级到关键词检索: {}", e.getMessage());
-            // 降级到关键词检索（原来的TF-IDF方法）
-            return fallbackToKeywordSearch(question);
+            List<ScoredDocument> kw = fallbackToKeywordSearch(question);
+            if (kw.isEmpty()) {
+                return new SearchOutcome(Collections.emptyList(), "NO_HITS");
+            }
+            return new SearchOutcome(kw, "KEYWORD_FALLBACK");
         }
     }
 
@@ -187,7 +196,7 @@ public class RAGKnowledgeService {
 
             return scoredDocs.stream()
                     .sorted((a, b) -> Double.compare(b.score, a.score))
-                    .limit(5)
+                    .limit(8)
                     .collect(Collectors.toList());
 
         } catch (Exception e) {
@@ -199,38 +208,50 @@ public class RAGKnowledgeService {
     /**
      * 计算关键词相关性（简单的关键词匹配）
      */
-    private double calculateKeywordRelevance(KnowledgeArticle doc, String question) {
+    private double calculateKeywordRelevance(KnowledgeArticle doc, String questionLower) {
         String title = doc.getTitle() != null ? doc.getTitle().toLowerCase() : "";
         String content = doc.getContent() != null ? doc.getContent().toLowerCase() : "";
+        String haystack = title + "\n" + content;
 
-        // 提取问题中的关键词（长度>=2的词）
-        String[] keywords = question.split("\\s+");
-        int matchCount = 0;
-        int totalKeywords = 0;
-
-        for (String keyword : keywords) {
+        LinkedHashSet<String> terms = new LinkedHashSet<>();
+        for (String keyword : questionLower.split("\\s+")) {
             if (keyword.length() >= 2) {
-                totalKeywords++;
-                if (title.contains(keyword) || content.contains(keyword)) {
-                    matchCount++;
-                }
+                terms.add(keyword);
             }
         }
+        Matcher zh = Pattern.compile("[\\u4e00-\\u9fa5]{2,}").matcher(questionLower);
+        while (zh.find()) {
+            terms.add(zh.group());
+        }
 
-        if (totalKeywords == 0) {
+        if (terms.isEmpty() && questionLower.trim().length() >= 2) {
+            terms.add(questionLower.trim());
+        }
+
+        if (terms.isEmpty()) {
             return 0.0;
         }
 
-        // 关键词匹配率
-        return (double) matchCount / totalKeywords;
+        int matchCount = 0;
+        for (String term : terms) {
+            if (haystack.contains(term)) {
+                matchCount++;
+            }
+        }
+
+        double ratio = (double) matchCount / terms.size();
+        if (title.contains(questionLower.trim()) && questionLower.trim().length() >= 2) {
+            ratio += 0.15;
+        }
+        return Math.min(1.0, ratio);
     }
 
     /**
      * 构建增强上下文（包含相关性分数）
      */
-    private String buildEnhancedContext(List<ScoredDocument> scoredDocs) {
+    private String buildEnhancedContext(String question, List<ScoredDocument> scoredDocs) {
         StringBuilder context = new StringBuilder();
-        context.append("知识库文档（按相关性排序）:\n\n");
+        context.append("知识库文档（按相关性排序，回答时请用 [文档n] 引用编号）:\n\n");
 
         for (int i = 0; i < scoredDocs.size(); i++) {
             ScoredDocument scoredDoc = scoredDocs.get(i);
@@ -240,13 +261,11 @@ public class RAGKnowledgeService {
                 i + 1, scoredDoc.score, doc.getTitle()));
             context.append(String.format("分类: %s\n", doc.getCategory()));
 
-            if (doc.getSummary() != null) {
+            String snippet = extractCitationSnippet(doc, question);
+            if (doc.getSummary() != null && !doc.getSummary().isBlank()) {
                 context.append(String.format("摘要: %s\n", doc.getSummary()));
-            } else if (doc.getContent() != null) {
-                String content = doc.getContent();
-                context.append(String.format("内容: %s\n",
-                    content.length() > 500 ? content.substring(0, 500) + "..." : content));
             }
+            context.append(String.format("摘录: %s\n", snippet));
             context.append("\n");
         }
 
@@ -254,19 +273,58 @@ public class RAGKnowledgeService {
     }
 
     /**
+     * 从正文截取与问题相关的短片段，便于模型引用
+     */
+    private String extractCitationSnippet(KnowledgeArticle doc, String question) {
+        String body = doc.getContent();
+        if (body == null || body.isBlank()) {
+            return doc.getSummary() != null ? truncate(doc.getSummary(), 220) : "";
+        }
+        String q = question != null ? question.trim() : "";
+        if (q.length() >= 2) {
+            Matcher m = Pattern.compile("[\\u4e00-\\u9fa5]{2,}").matcher(q.toLowerCase(Locale.ROOT));
+            while (m.find()) {
+                String term = m.group();
+                int idx = body.toLowerCase(Locale.ROOT).indexOf(term);
+                if (idx >= 0) {
+                    int start = Math.max(0, idx - 40);
+                    int end = Math.min(body.length(), idx + term.length() + 120);
+                    return truncate(body.substring(start, end).replace('\n', ' '), 220);
+                }
+            }
+            int idx2 = body.toLowerCase(Locale.ROOT).indexOf(q.toLowerCase(Locale.ROOT));
+            if (idx2 >= 0) {
+                int start = Math.max(0, idx2 - 30);
+                int end = Math.min(body.length(), idx2 + q.length() + 100);
+                return truncate(body.substring(start, end).replace('\n', ' '), 220);
+            }
+        }
+        return truncate(body.replace('\n', ' '), 220);
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) {
+            return "";
+        }
+        String t = s.trim();
+        return t.length() <= max ? t : t.substring(0, max) + "…";
+    }
+
+    /**
      * Generate answer via LLM
      */
     private String generateAnswer(String question, String context) {
         try {
-            AIConfig config = aiConfigService.getDefaultConfig();
-            if (config == null) {
-                return "AI service not configured.";
-            }
-
+            AIConfig config = aimodelRoutingService.resolveForUseCase(AIModelUseCase.RAG);
             String prompt = buildPrompt(question, context);
-            String response = callLLMAPI(config, prompt);
-            return extractAnswer(response);
-
+            String text = llmApiService.chatWithConfig(prompt, null, config);
+            if (text == null || text.isBlank()) {
+                return "Failed to generate answer.";
+            }
+            return text
+                    .replaceAll("^```\\w*\\n", "")
+                    .replaceAll("\\n```$", "")
+                    .trim();
         } catch (Exception e) {
             log.error("LLM call failed", e);
             return "Answer generation failed. Please try again later.";
@@ -288,170 +346,20 @@ public class RAGKnowledgeService {
             "4. 必要时引用文档中的具体内容\n" +
             "5. 使用清晰的格式，分段和列表\n" +
             "6. 如果涉及法律条文，请引用完整\n" +
-            "7. 如果涉及案例，请说明相关法律依据\n\n" +
+            "7. 如果涉及案例，请说明相关法律依据\n" +
+            "8. 引用具体段落时请标注文档编号，例如 [文档1]\n\n" +
             "请用中文回答：",
             context, question
         );
     }
 
-    /**
-     * Call LLM API
-     */
-    private String callLLMAPI(AIConfig config, String prompt) {
-        String apiUrl = config.getApiUrl();
-        String apiKey = config.getApiKey();
-        String providerType = config.getProviderType();
+    private static class SearchOutcome {
+        final List<ScoredDocument> documents;
+        final String retrievalMode;
 
-        if ("DEEPSEEK_API".equals(providerType)) {
-            return callDeepSeek(apiUrl, apiKey, prompt, config);
-        } else if ("OPENAI_API".equals(providerType)) {
-            return callOpenAI(apiUrl, apiKey, prompt, config);
-        } else if ("ollama".equalsIgnoreCase(providerType)) {
-            return callOllama(apiUrl, prompt, config);
-        } else {
-            throw new RuntimeException("Unsupported AI provider: " + providerType);
-        }
-    }
-
-    /**
-     * Call DeepSeek API
-     */
-    private String callDeepSeek(String apiUrl, String apiKey, String prompt, AIConfig config) {
-        try {
-            String url = apiUrl + "/chat/completions";
-
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", config.getModelName() != null ? config.getModelName() : "deepseek-chat");
-            requestBody.put("messages", List.of(
-                Map.of("role", "user", "content", prompt)
-            ));
-            requestBody.put("temperature", config.getTemperature() != null ? config.getTemperature() : 0.7);
-            requestBody.put("max_tokens", config.getMaxTokens() != null ? config.getMaxTokens() : 2000);
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(apiKey);
-
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK) {
-                return response.getBody();
-            } else {
-                throw new RuntimeException("DeepSeek API error: " + response.getStatusCode());
-            }
-
-        } catch (Exception e) {
-            log.error("DeepSeek API call failed", e);
-            throw new RuntimeException("DeepSeek API call failed: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Call OpenAI API
-     */
-    private String callOpenAI(String apiUrl, String apiKey, String prompt, AIConfig config) {
-        try {
-            String url = apiUrl + "/chat/completions";
-
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", config.getModelName() != null ? config.getModelName() : "gpt-3.5-turbo");
-            requestBody.put("messages", List.of(
-                Map.of("role", "user", "content", prompt)
-            ));
-            requestBody.put("temperature", config.getTemperature() != null ? config.getTemperature() : 0.7);
-            requestBody.put("max_tokens", config.getMaxTokens() != null ? config.getMaxTokens() : 2000);
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(apiKey);
-
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK) {
-                return response.getBody();
-            } else {
-                throw new RuntimeException("OpenAI API error: " + response.getStatusCode());
-            }
-
-        } catch (Exception e) {
-            log.error("OpenAI API call failed", e);
-            throw new RuntimeException("OpenAI API call failed: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Call Ollama API
-     */
-    private String callOllama(String apiUrl, String prompt, AIConfig config) {
-        try {
-            // 构建Ollama API URL，默认使用localhost:11434
-            String baseUrl = apiUrl != null && !apiUrl.isEmpty()
-                    ? apiUrl
-                    : "http://localhost:11434";
-            String url = baseUrl + "/api/chat";
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("model", config.getModelName() != null && !config.getModelName().isEmpty()
-                    ? config.getModelName()
-                    : "qwen2.5");
-            requestBody.put("stream", false);
-            requestBody.put("options", new HashMap<String, Object>() {{
-                put("temperature", config.getTemperature() != null ? config.getTemperature() : 0.7);
-                put("num_predict", config.getMaxTokens() != null ? config.getMaxTokens() : 2000);
-            }});
-            requestBody.put("messages", List.of(
-                Map.of("role", "user", "content", prompt)
-            ));
-
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-
-            log.info("调用Ollama API: {}, 模型: {}", url, requestBody.get("model"));
-
-            ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK) {
-                // Ollama返回的是JSON格式，需要提取message.content
-                JsonNode root = objectMapper.readTree(response.getBody());
-                JsonNode message = root.path("message");
-                return message.path("content").asText();
-            } else {
-                throw new RuntimeException("Ollama API error: " + response.getStatusCode());
-            }
-
-        } catch (Exception e) {
-            log.error("Ollama API call failed", e);
-            throw new RuntimeException("Ollama API call failed: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Extract answer from LLM response
-     */
-    private String extractAnswer(String response) {
-        try {
-            JsonNode root = objectMapper.readTree(response);
-            JsonNode choices = root.path("choices");
-
-            if (choices.isArray() && choices.size() > 0) {
-                JsonNode message = choices.get(0).path("message");
-                String content = message.path("content").asText();
-
-                return content
-                    .replaceAll("^```\\w*\\n", "")
-                    .replaceAll("\\n```$", "")
-                    .trim();
-            }
-
-            return "Failed to generate answer.";
-
-        } catch (Exception e) {
-            log.error("Parse LLM response failed", e);
-            return "Answer parsing failed.";
+        SearchOutcome(List<ScoredDocument> documents, String retrievalMode) {
+            this.documents = documents;
+            this.retrievalMode = retrievalMode;
         }
     }
 

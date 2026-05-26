@@ -93,6 +93,13 @@
         </div>
       </el-tab-pane>
 
+      <!-- 考勤管理（PRD 行政模块） -->
+      <el-tab-pane label="考勤管理" name="attendance">
+        <div class="tab-content">
+          <AttendancePanel />
+        </div>
+      </el-tab-pane>
+
       <!-- 综合概览 -->
       <el-tab-pane label="综合概览" name="overview">
         <div class="tab-content">
@@ -336,6 +343,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Bell, Location, Box, Monitor } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
+import AttendancePanel from '@/components/admin/AttendancePanel.vue'
 import {
   getAnnouncements,
   createAnnouncement

@@ -1,0 +1,9 @@
+{
+  "name": "zgai",
+  "private": true,
+  "scripts": {
+    "test": "npm run test:frontend && npm run test:backend",
+    "test:frontend": "cd frontend && npm run test",
+    "test:backend": "cd backend && mvn -q test"
+  }
+}

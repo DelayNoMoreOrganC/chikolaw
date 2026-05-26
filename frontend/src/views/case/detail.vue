@@ -32,6 +32,7 @@
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
+              <el-dropdown-item command="termination">终止委托申请</el-dropdown-item>
               <el-dropdown-item command="copy">复制案件</el-dropdown-item>
               <el-dropdown-item command="export">导出信息</el-dropdown-item>
               <el-dropdown-item command="delete" divided>删除案件</el-dropdown-item>
@@ -104,9 +105,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Edit, FolderOpened, ArrowDown, Select, ChatDotRound
 } from '@element-plus/icons-vue'
-import { getCaseDetail, updateCaseStatus, archiveCase, deleteCase } from '@/api/case'
-import { createTodo } from '@/api/todo'
-import { getStagesByCaseType, getStageAutoTodos, generateStageTodos } from '@/config/case-lifecycle'
+import { getCaseDetail, updateCaseStatus, rollbackCaseStatus, archiveCase, deleteCase } from '@/api/case'
+import { getStagesByCaseType } from '@/config/case-lifecycle'
 import AIAssistant from '@/views/ai/assistant.vue'
 
 const route = useRoute()
@@ -122,19 +122,34 @@ const caseDetail = reactive({
   currentStage: '咨询',
   caseType: '',
   level: '',
-  ownerId: ''
+  ownerId: '',
+  stageProgress: []
 })
 
-// 案件阶段 - 根据案件类型动态获取
+// 优先使用后端 stageProgress，与流程模板一致
 const caseStages = computed(() => {
+  if (caseDetail.stageProgress?.length) {
+    return caseDetail.stageProgress.map((s, index) => ({
+      key: `stage_${s.stageOrder ?? index}`,
+      label: s.stageName,
+      order: s.stageOrder ?? index + 1,
+      status: s.status
+    }))
+  }
   return getStagesByCaseType(caseDetail.caseType)
 })
 
-// 判断阶段是否已完成
+const currentStageIndex = computed(() =>
+  caseStages.value.findIndex(s => s.label === caseDetail.currentStage)
+)
+
 const isStageCompleted = (stageKey) => {
+  const stage = caseStages.value.find(s => s.key === stageKey)
+  if (stage?.status) {
+    return stage.status === 'COMPLETED'
+  }
   const stageIndex = caseStages.value.findIndex(s => s.key === stageKey)
-  const currentIndex = caseStages.value.findIndex(s => s.label === caseDetail.currentStage)
-  return stageIndex < currentIndex
+  return stageIndex >= 0 && stageIndex < currentStageIndex.value
 }
 
 // 判断阶段是否已激活（已完成或当前）
@@ -206,6 +221,26 @@ const handleViewApprovals = () => {
 // 更多操作
 const handleMoreAction = async (command) => {
   switch (command) {
+    case 'termination': {
+      try {
+        const { value } = await ElMessageBox.prompt(
+          '请填写终止委托理由及情况说明（行政表2）',
+          '案件终止委托申请',
+          { confirmButtonText: '提交审批', inputType: 'textarea', inputPlaceholder: '委托终止理由...' }
+        )
+        const { createApproval } = await import('@/api/approval')
+        await createApproval({
+          approvalType: 'CASE_TERMINATION',
+          title: `终止委托 - ${caseDetail.value.caseName || caseDetail.value.caseNumber}`,
+          content: value || '',
+          caseId: caseDetail.value.id
+        })
+        ElMessage.success('终止委托申请已提交审批中心')
+      } catch (e) {
+        if (e !== 'cancel') ElMessage.error(e.message || '提交失败')
+      }
+      break
+    }
     case 'copy':
       try {
         await ElMessageBox.confirm(
@@ -386,12 +421,12 @@ const handleStageClick = async (stage) => {
         })
 
         // 调用更新状态API（带原因）
-        await updateCaseStatus(caseDetail.id, {
+        await rollbackCaseStatus(caseDetail.id, {
           status: stage.label,
           reason: value
         })
 
-        ElMessage.success(`已回退到"${stage.label}"阶段`)
+        ElMessage.success(`已回退到「${stage.label}」阶段`)
       } catch (error) {
         if (error !== 'cancel') {
           console.error('回退失败:', error)
@@ -412,10 +447,7 @@ const handleStageClick = async (stage) => {
         status: stage.label
       })
 
-      ElMessage.success(`已更新到"${stage.label}"阶段`)
-
-      // 自动生成该阶段的待办事项
-      await generateTodosForStage(stage.key)
+      ElMessage.success(`已更新到「${stage.label}」阶段（待办由系统自动生成）`)
     }
 
     // 刷新案件详情
@@ -425,45 +457,6 @@ const handleStageClick = async (stage) => {
       console.error('更新阶段失败:', error)
       ElMessage.error('更新阶段失败')
     }
-  }
-}
-
-// 为新阶段自动生成待办事项
-const generateTodosForStage = async (stageKey) => {
-  try {
-    // 获取该阶段的自动待办模板
-    const autoTodos = getStageAutoTodos(caseDetail.caseType, stageKey)
-
-    if (!autoTodos || autoTodos.length === 0) {
-      return // 该阶段没有自动待办，跳过
-    }
-
-    // 生成待办事项
-    const todos = generateStageTodos(
-      caseDetail.caseType,
-      stageKey,
-      caseDetail.id,
-      caseDetail.caseName,
-      caseDetail.ownerId
-    )
-
-    // 批量创建待办
-    let createdCount = 0
-    for (const todo of todos) {
-      try {
-        await createTodo(todo)
-        createdCount++
-      } catch (error) {
-        console.error('创建待办失败:', error)
-      }
-    }
-
-    if (createdCount > 0) {
-      ElMessage.success(`已为该阶段自动创建${createdCount}个待办事项`)
-    }
-  } catch (error) {
-    console.error('自动生成待办失败:', error)
-    // 不阻塞主流程，静默失败
   }
 }
 

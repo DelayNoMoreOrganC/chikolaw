@@ -1,5 +1,8 @@
 <template>
   <div class="dashboard">
+    <!-- 核心：卷宗智能录入（传文件→AI分析→登记备注→案件档案夹） -->
+    <CaseFileIntakePanel />
+
     <!-- 统计卡片区 -->
     <div class="stats-cards">
       <div
@@ -42,6 +45,51 @@
               新建日程
             </el-button>
           </div>
+        </div>
+        <div class="calendar-filters">
+          <el-select v-model="calendarFilters.calendarType" placeholder="日程类型" clearable size="small" style="width: 120px">
+            <el-option label="开庭" value="HEARING" />
+            <el-option label="审限" value="DEADLINE" />
+            <el-option label="立案" value="FILING" />
+            <el-option label="调解" value="MEDIATION" />
+            <el-option label="举证" value="EVIDENCE" />
+          </el-select>
+          <el-select v-model="calendarFilters.caseType" placeholder="案件类型" clearable size="small" style="width: 110px">
+            <el-option label="民事" value="CIVIL" />
+            <el-option label="刑事" value="CRIMINAL" />
+            <el-option label="行政" value="ADMINISTRATIVE" />
+            <el-option label="仲裁" value="ARBITRATION" />
+            <el-option label="非诉" value="NON_LITIGATION" />
+          </el-select>
+          <el-select v-model="calendarFilters.caseStatus" placeholder="案件状态" clearable size="small" style="width: 110px">
+            <el-option label="咨询中" value="CONSULTATION" />
+            <el-option label="进行中" value="ACTIVE" />
+            <el-option label="已结案" value="CLOSED" />
+            <el-option label="已归档" value="ARCHIVED" />
+          </el-select>
+          <el-select
+            v-model="calendarFilters.ownerId"
+            placeholder="主办律师"
+            clearable
+            filterable
+            size="small"
+            style="width: 130px"
+          >
+            <el-option
+              v-for="o in calendarOwnerOptions"
+              :key="o.id"
+              :label="o.name"
+              :value="o.id"
+            />
+          </el-select>
+          <el-input
+            v-model="calendarFilters.court"
+            placeholder="法院关键词"
+            clearable
+            size="small"
+            style="width: 140px"
+          />
+          <el-button size="small" @click="resetCalendarFilters">重置</el-button>
         </div>
         <div class="calendar-view">
           <el-calendar v-model="calendarDate">
@@ -299,6 +347,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { Plus, FolderAdd, UserFilled, MagicStick, UploadFilled, Loading, Bell } from '@element-plus/icons-vue'
 import PriorityDot from '@/components/PriorityDot.vue'
+import CaseFileIntakePanel from '@/components/CaseFileIntakePanel.vue'
 import { getDashboardStats } from '@/api/dashboard'
 import { getTodoList, deleteTodo, updateTodo } from '@/api/todo'
 import { uploadDocForAIRecognition } from '@/api/ai'
@@ -347,6 +396,45 @@ const previousStats = ref({})
 const calendarView = ref('month')
 const calendarDate = ref(new Date())
 const calendarEvents = ref([])
+const calendarFilters = ref({
+  calendarType: '',
+  caseType: '',
+  caseStatus: '',
+  court: '',
+  ownerId: null
+})
+
+const calendarOwnerOptions = computed(() => {
+  const map = new Map()
+  calendarEvents.value.forEach((e) => {
+    const d = e.data
+    if (d?.ownerId && d?.ownerName) {
+      map.set(d.ownerId, { id: d.ownerId, name: d.ownerName })
+    }
+  })
+  return [...map.values()]
+})
+
+const matchesCalendarFilters = (event) => {
+  const d = event.data || {}
+  const f = calendarFilters.value
+  if (f.calendarType && d.calendarType !== f.calendarType) return false
+  if (f.caseType && d.caseType !== f.caseType) return false
+  if (f.caseStatus && d.caseStatus !== f.caseStatus) return false
+  if (f.ownerId && d.ownerId !== f.ownerId) return false
+  if (f.court && !(d.court || '').includes(f.court)) return false
+  return true
+}
+
+const resetCalendarFilters = () => {
+  calendarFilters.value = {
+    calendarType: '',
+    caseType: '',
+    caseStatus: '',
+    court: '',
+    ownerId: null
+  }
+}
 
 // 待办事项
 const todos = ref([])
@@ -436,7 +524,7 @@ const fetchStats = async (showLoading = false) => {
     }
 
     const response = await getDashboardStats(userStore.userId)
-    if (response.success) {
+    if (response.code === 200 || response.success) {
       const data = response.data
 
       // 保存旧值用于计算趋势
@@ -490,7 +578,7 @@ const fetchCalendarEvents = async () => {
       endDate: formatDateToString(new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0))
     })
 
-    if (response.success) {
+    if (response.code === 200 || response.success) {
       const events = Array.isArray(response.data)
         ? response.data
         : (response.data?.list || response.data?.records || [])
@@ -565,7 +653,7 @@ const fetchTodos = async () => {
       sortBy: 'dueDate',
       sortOrder: 'ASC'
     })
-    if (response.success) {
+    if (response.code === 200 || response.success) {
       todos.value = Array.isArray(response.data)
         ? response.data
         : (response.data?.list || response.data?.records || [])
@@ -575,9 +663,11 @@ const fetchTodos = async () => {
   }
 }
 
-// 获取指定日期的事件
+// 获取指定日期的事件（含 PRD 多维筛选）
 const getEventsForDate = (date) => {
-  return calendarEvents.value.filter(event => event.date === date)
+  return calendarEvents.value.filter(
+    (event) => event.date === date && matchesCalendarFilters(event)
+  )
 }
 
 // 处理事件点击 - 显示案件详情浮层
@@ -635,7 +725,7 @@ const getTodoClass = (todo) => {
 const handleTodoComplete = async (todo) => {
   try {
     const response = await updateTodo(todo.id, { completed: todo.completed })
-    if (response.success) {
+    if (response.code === 200 || response.success) {
       ElMessage.success(todo.completed ? '待办已完成' : '待办已恢复')
       // 刷新列表
       await fetchTodos()
@@ -678,7 +768,7 @@ const handleDeleteTodo = async (todo) => {
 
     // 调用删除API
     const response = await deleteTodo(todo.id)
-    if (response.success) {
+    if (response.code === 200 || response.success) {
       ElMessage.success('删除成功')
       // 重新加载待办列表
       await fetchTodos()
@@ -1104,6 +1194,14 @@ onUnmounted(() => {
           gap: 10px;
           flex-wrap: wrap;
         }
+      }
+
+      .calendar-filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0 20px 12px;
+        align-items: center;
       }
     }
 

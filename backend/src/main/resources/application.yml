@@ -108,15 +108,24 @@ file:
 login:
   max-attempts: 5
   lock-duration: 1800000
+  lock-enabled: true
 
 backup:
   base-dir: ${LAWFIRM_BACKUP_DIR:./backups}
   retention-days: 180
 
+# 须与库中已加密字段一致；生产环境请用环境变量 CRYPTO_SECRET_KEY 覆盖默认值
 crypto:
-  secret-key: ${CRYPTO_SECRET_KEY:lawfirm-dev-crypto-secret-change-me}
+  secret-key: ${CRYPTO_SECRET_KEY:lawfirm-secret-key-2024-aes-256-encryption}
 
 ai:
+  ocr:
+    enabled: ${AI_OCR_ENABLED:true}
+    # 视觉 OCR 建议 deepseek；本地 tesseract 仅文本层提取
+    provider: ${AI_OCR_PROVIDER:tesseract}
+    # DeepSeek 扫描版 PDF：分页渲染为图再调 Vision（控制成本）
+    pdf-vision-max-pages: ${AI_OCR_PDF_VISION_MAX_PAGES:5}
+    pdf-vision-dpi: ${AI_OCR_PDF_VISION_DPI:120}
   deepseek:
     api-key: ${DEEPSEEK_API_KEY:your-deepseek-api-key}
     base-url: https://api.deepseek.com
@@ -153,12 +162,58 @@ llm:
     api-key: ${QWEN_API_KEY:your-qwen-api-key}
     base-url: https://dashscope.aliyuncs.com
     model: qwen-plus
+  # LM Studio：OpenAI 兼容（本地 Qwen 等）；模型名与 LM Studio 界面一致
+  lmstudio:
+    base-url: ${LMSTUDIO_BASE_URL:http://127.0.0.1:1234}
+    api-key: ${LMSTUDIO_API_KEY:lm-studio}
+    chat-model: ${LMSTUDIO_MODEL:}
+    max-tokens: 8192
+    temperature: 0.7
+  # 本地模型不可用时自动降级到云端
+  fallback:
+    enabled: ${LLM_FALLBACK_ENABLED:true}
+    provider: ${LLM_FALLBACK_PROVIDER:deepseek}
+  # 各业务首选 provider（库中 ai_config.provider_type，如 lmstudio / deepseek）
+  routing:
+    legal-chat: ${LLM_ROUTE_LEGAL_CHAT:lmstudio}
+    rag: ${LLM_ROUTE_RAG:lmstudio}
+    document: ${LLM_ROUTE_DOCUMENT:lmstudio}
+    general-chat: ${LLM_ROUTE_GENERAL_CHAT:lmstudio}
+    extract: ${LLM_ROUTE_EXTRACT:lmstudio}
+    document-recognition-extract: ${LLM_ROUTE_DOC_EXTRACT:lmstudio}
+    legacy-document: ${LLM_ROUTE_LEGACY_DOCUMENT:lmstudio}
   # 超时配置（毫秒）
   timeout: 30000
   # 重试次数
   retry: 3
 
+# 内嵌 Agent 运行时（卷宗分析统一入口）
+agent:
+  runtime:
+    # builtin=内置 Vision+LLM（默认）| openclaw=本机 OpenClaw Gateway | hermes=设备 Hermes
+    provider: ${AGENT_PROVIDER:builtin}
+    openclaw:
+      base-url: ${OPENCLAW_BASE_URL:http://127.0.0.1:18789/v1}
+      api-key: ${OPENCLAW_API_KEY:openclaw-local}
+      model: ${OPENCLAW_MODEL:main}
+
+# 设备侧 Hermes（接口就绪后设 agent.runtime.provider=hermes 并启用）
+hermes:
+  agent:
+    enabled: ${HERMES_ENABLED:false}
+    base-url: ${HERMES_BASE_URL:http://127.0.0.1:17888}
+    connect-timeout-ms: 5000
+    read-timeout-ms: 120000
+    health-path: /health
+    chat-path: /v1/chat
+    analyze-path: /v1/analyze
+
+case-search:
+  semantic:
+    enabled: ${CASE_SEARCH_SEMANTIC_ENABLED:false}
+
 qdrant:
+  enabled: ${QDRANT_ENABLED:false}
   host: localhost
   port: 6333
   grpc-port: 6334

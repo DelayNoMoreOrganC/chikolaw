@@ -182,33 +182,59 @@ public class CaseDocumentController {
      * GET /api/cases/{caseId}/documents/{id}/download
      */
     @GetMapping("/{id}/download")
-    @PreAuthorize("hasAuthority('CASE_VIEW')")
+    @PreAuthorize("isAuthenticated()")
     public void downloadDocument(
             @PathVariable Long caseId,
             @PathVariable Long id,
+            @RequestParam(value = "inline", defaultValue = "false") boolean inline,
             HttpServletResponse response) throws IOException {
+        streamDocument(caseId, id, inline, response);
+    }
+
+    /**
+     * 在线预览（inline）
+     */
+    @GetMapping("/{id}/preview")
+    @PreAuthorize("isAuthenticated()")
+    public void previewDocument(
+            @PathVariable Long caseId,
+            @PathVariable Long id,
+            HttpServletResponse response) throws IOException {
+        streamDocument(caseId, id, true, response);
+    }
+
+    private void streamDocument(Long caseId, Long id, boolean inline, HttpServletResponse response)
+            throws IOException {
         try {
             CaseDocumentDTO document = caseDocumentService.getDocumentById(id);
-
+            if (!caseId.equals(document.getCaseId())) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                return;
+            }
             if (document.getFilePath() == null || document.getFilePath().isEmpty()) {
                 response.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 response.getWriter().write("文件路径不存在");
                 return;
             }
 
-            response.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
+            com.lawfirm.entity.CaseDocument entity = new com.lawfirm.entity.CaseDocument();
+            entity.setContentType(document.getContentType());
+            entity.setDocumentName(document.getDocumentName());
+            String contentType = caseDocumentService.resolvePreviewContentType(entity);
+            response.setContentType(contentType);
+            String disposition = inline ? "inline" : "attachment";
             response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
-                    "attachment; filename=\"" + document.getDocumentName() + "\"");
+                    disposition + "; filename=\"" + java.net.URLEncoder.encode(
+                            document.getDocumentName(), "UTF-8").replace("+", "%20") + "\"");
 
             try (java.io.InputStream inputStream = caseDocumentService.openDocumentStream(id)) {
                 org.springframework.util.StreamUtils.copy(inputStream, response.getOutputStream());
             }
-
             response.flushBuffer();
         } catch (Exception e) {
-            log.error("下载文档失败", e);
+            log.error("文档流输出失败", e);
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-            response.getWriter().write("下载失败: " + e.getMessage());
+            response.getWriter().write("输出失败: " + e.getMessage());
         }
     }
 }

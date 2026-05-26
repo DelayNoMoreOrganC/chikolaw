@@ -1,7 +1,6 @@
 package com.lawfirm.dto;
 
 import javax.validation.constraints.NotBlank;
-import javax.validation.constraints.NotNull;
 import lombok.Data;
 
 /**
@@ -21,7 +20,7 @@ public class ApprovalCreateRequest {
 
     private Long caseId;
 
-    @NotNull(message = "当前审批人不能为空")
+    /** 可选；未传时按自定义流程模板解析 */
     private Long currentApproverId;
 
     private String attachments;

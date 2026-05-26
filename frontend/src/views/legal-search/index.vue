@@ -44,7 +44,32 @@
       </el-tab-pane>
 
       <el-tab-pane label="类案推送" name="similar">
-        <el-empty description="请在案件详情页根据当前案由推送类案；本页保留为统一入口。" />
+        <el-card v-loading="similarLoading">
+          <el-form inline>
+            <el-form-item label="案由">
+              <el-input v-model="similarForm.caseReason" placeholder="案由关键词" clearable style="width: 220px" />
+            </el-form-item>
+            <el-form-item label="类型">
+              <el-select v-model="similarForm.caseType" style="width: 120px">
+                <el-option label="民事" value="CIVIL" />
+                <el-option label="刑事" value="CRIMINAL" />
+                <el-option label="行政" value="ADMINISTRATIVE" />
+              </el-select>
+            </el-form-item>
+            <el-button type="primary" @click="runSimilarSearch">检索</el-button>
+            <el-button @click="goCaseSearch">完整类案页</el-button>
+          </el-form>
+          <el-table :data="similarResults" style="margin-top: 12px" empty-text="输入案由后检索">
+            <el-table-column prop="caseName" label="案件" min-width="180" />
+            <el-table-column prop="caseReason" label="案由" width="140" />
+            <el-table-column prop="similarityPercent" label="相似度" width="90" />
+            <el-table-column label="操作" width="100">
+              <template #default="{ row }">
+                <el-button link type="primary" @click="router.push(`/case/${row.caseId}`)">查看</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
       </el-tab-pane>
     </el-tabs>
   </div>
@@ -52,11 +77,17 @@
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import PageHeader from '@/components/PageHeader.vue'
 import { askLegalQuestion, getLegalCategories, searchRegulations } from '@/api/legalSearch'
+import { searchSimilarCases } from '@/api/caseSearch'
 
+const router = useRouter()
 const activeTab = ref('regulations')
+const similarForm = reactive({ caseReason: '', caseType: 'CIVIL' })
+const similarResults = ref([])
+const similarLoading = ref(false)
 const categories = ref([])
 const articles = ref([])
 const query = reactive({ keyword: '', category: '' })
@@ -85,6 +116,33 @@ const handleAsk = async () => {
   } finally {
     asking.value = false
   }
+}
+
+const runSimilarSearch = async () => {
+  if (!similarForm.caseReason?.trim()) {
+    ElMessage.warning('请输入案由')
+    return
+  }
+  similarLoading.value = true
+  try {
+    const res = await searchSimilarCases({
+      caseReason: similarForm.caseReason.trim(),
+      caseType: similarForm.caseType,
+      limit: 10
+    })
+    similarResults.value = Array.isArray(res.data) ? res.data : []
+  } catch (e) {
+    ElMessage.error(e.message || '检索失败')
+  } finally {
+    similarLoading.value = false
+  }
+}
+
+const goCaseSearch = () => {
+  router.push({
+    path: '/case-search',
+    query: { caseReason: similarForm.caseReason, caseType: similarForm.caseType }
+  })
 }
 
 onMounted(async () => {

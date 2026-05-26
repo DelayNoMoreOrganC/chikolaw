@@ -89,19 +89,41 @@ file:
     - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
     - text/plain
 
-# 登录失败锁定配置
+# 登录失败锁定配置（开发环境关闭锁定，避免调试时账号被锁 30 分钟）
 login:
   max-attempts: 5
   lock-duration: 1800000  # 30分钟 (毫秒)
+  lock-enabled: false
 
 # AI配置
 ai:
+  ocr:
+    provider: deepseek
+    pdf-vision-max-pages: 5
+    pdf-vision-dpi: 120
   deepseek:
     api-key: your-deepseek-api-key
     base-url: https://api.deepseek.com/v1
     model: deepseek-chat
     max-tokens: 4000
     temperature: 0.7
+
+# 本地大模型（LM Studio）推理较慢，适当拉长超时
+llm:
+  timeout: 180000
+  lmstudio:
+    base-url: http://127.0.0.1:1234
+  fallback:
+    enabled: true
+    provider: deepseek
+  routing:
+    legal-chat: lmstudio
+    rag: lmstudio
+    document: lmstudio
+    general-chat: lmstudio
+    extract: lmstudio
+    document-recognition-extract: lmstudio
+    legacy-document: lmstudio
 
 # 日志配置
 logging:

@@ -12,6 +12,7 @@ public enum CaseType {
     CRIMINAL("刑事"),
     ADMINISTRATIVE("行政"),
     NON_LITIGATION("非诉"),
+    ADVISORY("顾问"),
     FINANCIAL_NPA("金融不良资产");
 
     private final String description;
