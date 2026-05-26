@@ -1,16 +1,18 @@
 package com.lawfirm.controller;
 
 import com.lawfirm.dto.ClientDTO;
+import com.lawfirm.dto.ClientImportResultDTO;
+import com.lawfirm.security.SecurityUtils;
+import com.lawfirm.service.ClientImportService;
 import com.lawfirm.service.ClientService;
 import com.lawfirm.util.Result;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-import javax.validation.Valid;
+import org.springframework.web.multipart.MultipartFile;
 
+import javax.validation.Valid;
 import java.util.List;
 
 /**
@@ -23,6 +25,8 @@ import java.util.List;
 public class ClientController {
 
     private final ClientService clientService;
+    private final ClientImportService clientImportService;
+    private final SecurityUtils securityUtils;
     private final com.lawfirm.repository.UserRepository userRepository;
 
     /**
@@ -51,7 +55,8 @@ public class ClientController {
     @PutMapping("/{id}")
     public Result<ClientDTO> updateClient(@PathVariable Long id, @Valid @RequestBody ClientDTO dto) {
         try {
-            ClientDTO result = clientService.updateClient(id, dto);
+            Long userId = getCurrentUserId();
+            ClientDTO result = clientService.updateClient(id, dto, userId, securityUtils.isAdmin());
             return Result.success(result);
         } catch (IllegalArgumentException e) {
             log.error("更新客户失败: {}", e.getMessage());
@@ -221,6 +226,27 @@ public class ClientController {
         } catch (Exception e) {
             log.error("创建沟通记录异常", e);
             return Result.error("创建沟通记录失败");
+        }
+    }
+
+    /**
+     * Excel 批量导入客户（导入前逐行利冲审查）
+     * POST /api/clients/import
+     */
+    @PostMapping("/import")
+    public Result<ClientImportResultDTO> importClients(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "skipConflictRows", defaultValue = "true") boolean skipConflictRows) {
+        try {
+            if (file.isEmpty()) {
+                return Result.error("文件不能为空");
+            }
+            Long userId = getCurrentUserId();
+            ClientImportResultDTO result = clientImportService.importClients(file, userId, skipConflictRows);
+            return Result.success("导入完成", result);
+        } catch (Exception e) {
+            log.error("客户导入失败", e);
+            return Result.error("客户导入失败: " + e.getMessage());
         }
     }
 

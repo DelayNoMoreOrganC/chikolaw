@@ -1,7 +1,16 @@
-# 律所智能案件管理系统 PRD v1.0
+# 律所智能案件管理系统 PRD v2.0
 
-> 本文档基于案件云系统分析 + 4方开发方案整合，作为系统开发的唯一需求基准。
-> 项目目录：D:\ZGAI
+> **唯一需求基准**：产品范围、模块规格、数据模型与 API 以本文档为准。  
+> **实现进度**：见附录「实现状态矩阵」；运行时快照可参考 [`CURRENT_STATUS.md`](CURRENT_STATUS.md)。  
+> **历史进度文档**（如 `PRD功能清单.md`、`PRD开发任务列表.md`）已归档至 [`archive/reports/`](archive/reports/)，不得与本文档结论冲突。  
+> 项目目录：`D:\ZGAI`
+
+### 变更记录
+
+| 版本 | 日期 | 说明 |
+|------|------|------|
+| v2.0 | 2026-05-25 | 对齐当前实现：环境分层技术栈、17 项导航与 P2 扩展模块、AI 模型路由与可观测性、角色/审批枚举统一、实现状态矩阵附录 |
+| v1.0 | 2026-04-17 | 初版：案件云分析 + 四方方案整合 |
 
 ---
 
@@ -11,16 +20,20 @@
 
 面向律所的**智能案件全流程管理平台**，以 AI 驱动的文档智能识别（IDP）为核心，实现案件进度可视化、录入自动化、卷宗标准化、行政OA一体化。
 
-### 1.2 目标用户
+### 1.2 目标用户与角色
 
-60人律所，4种角色：
+60 人律所，**6 种预置角色**（与后端 `RoleCode`、§11 系统管理一致）：
 
-| 角色 | 职责 | 典型操作 |
-|------|------|---------|
-| 主办律师 | 案件负责人 | 创建/管理案件、审批、查看全部数据 |
-| 协办律师 | 案件协办 | 编辑参与案件、上传文档、记录工时 |
-| 律师助理 | 基础支持 | 上传卷宗、归档、录入基础信息 |
-| 系统管理员 | 系统运维 | 用户管理、权限配置、系统参数 |
+| 角色编码 | 名称 | 职责 | 典型操作 |
+|----------|------|------|---------|
+| ADMIN | 系统管理员 | 系统运维 | 用户/角色/配置/备份、全量数据 |
+| DIRECTOR | 主任 | 律所管理 | 查看全部案件与统计、审批终审 |
+| LAWYER_MAIN | 主办律师 | 案件负责人 | 创建/管理案件、发起审批、团队配置 |
+| LAWYER_ASSIST | 协办律师 | 案件协办 | 编辑参与案件、上传文档、记录工时 |
+| ASSISTANT | 律师助理 | 基础支持 | 卷宗上传、归档、基础信息录入 |
+| FINANCE | 财务 | 收支管理 | 费用/收款/开票、财务统计 |
+
+> 说明：`MANAGER` 与 `DIRECTOR` 在代码中为同义别名；`GUEST` 为受限访客，非核心业务角色。
 
 ### 1.3 部署方式
 
@@ -30,17 +43,22 @@
 
 ## 二、全局设计规范
 
-### 2.1 技术栈
+### 2.1 技术栈（环境分层）
 
-| 层级 | 方案 |
-|------|------|
-| 前端 | Vue 3 + Element Plus |
-| 后端 | Spring Boot（Java） |
-| 数据库 | MySQL 8.0 |
-| 文件存储 | MinIO |
-| 缓存 | Redis |
-| AI接入 | DeepSeek API / 本地 Qwen-VL（可切换） |
-| OCR | PaddleOCR / 云端OCR API |
+| 层级 | 开发环境（默认） | 生产环境 |
+|------|------------------|----------|
+| 前端 | Vue 3 + Element Plus + Vite | 同左，静态资源由 Nginx 等托管 |
+| 后端 | Spring Boot 3（Java 11+） | 同左 |
+| 数据库 | **H2 文件库**（`jdbc:h2:file:./data/lawfirm`，MySQL 兼容模式） | **MySQL 8.0**（`pom.xml` 已预留驱动，切换 `spring.datasource`） |
+| 缓存 | **默认禁用** Redis 自动配置；登录锁定等用内存 `LoginAttemptCache` | **Redis 可选**（会话/分布式锁等按需启用） |
+| 文件存储 | **MinIO + 本地 fallback**（`minio.*` + `file.upload-path`） | 同左，建议 MinIO 集群 |
+| AI 接入 | **多 Provider**：DeepSeek、通义千问、**LM Studio**（OpenAI 兼容）、历史 Ollama 配置 | 同左，密钥经环境变量注入 |
+| AI 路由 | `llm.routing.*` 按场景指定首选 Provider；`llm.fallback` 云端降级 | 同左 |
+| 向量检索 | **Qdrant**（`application.yml` qdrant 段，可选）；RAG MVP 亦支持 TF-IDF | 生产建议启用 Qdrant |
+| OCR | **双路径**（见 §4.1）：① `AIDocumentService` — DeepSeek Vision / Tesseract；② `OcrService` — 模拟数据（遗留，待合并或标注废弃） | 生产以 Vision + LLM 提取为准 |
+| 本地缓存 | Caffeine（业务热点） | 同左 |
+
+**不再作为唯一方案的技术（v1.0 遗留表述）**：PaddleOCR 未接入；Redis/MySQL 在 PRD 中改为「按环境选型」而非写死。
 
 ### 2.2 整体布局
 
@@ -66,20 +84,51 @@
 └──────┴──────────────────────────────────────────────┘
 ```
 
-### 2.3 侧边导航（10个一级菜单）
+### 2.3 核心导航（10 个一级模块）
 
-| 序号 | 菜单 | 图标 | 路由 |
+v1.0 定义的 P0/P1 核心业务模块，均已实现：
+
+| 序号 | 菜单 | 路由 | 说明 |
 |------|------|------|------|
-| 1 | 工作台 | 📊 | /dashboard |
-| 2 | 日程 | 📅 | /calendar |
-| 3 | 案件 | ⚖️ | /case |
-| 4 | 客户 | 👥 | /client |
-| 5 | 文档中心 | 📁 | /document |
-| 6 | 财务 | 💰 | /finance |
-| 7 | 审批 | ✅ | /approval |
-| 8 | 行政OA | 🏢 | /admin-oa |
-| 9 | 统计 | 📈 | /statistics |
-| 10 | 系统设置 | ⚙️ | /settings |
+| 1 | 工作台 | /dashboard | 统计卡片、日历、待办、快捷入口 |
+| 2 | 日程 | /calendar | 月/周/日视图、待办、审限提醒 |
+| 3 | 案件 | /case | 含子菜单：列表、新建、**批量收案**、归档、回收站 |
+| 4 | 客户 | /client | 列表、新建 |
+| 5 | 文档中心 | /document | 所级文档库 |
+| 6 | 财务 | /finance | 费用/收款/开票 |
+| 7 | 审批 | /approval | 流程审批 |
+| 8 | 行政 | /admin-oa | 通知、会议室等（办公用品/固定资产见 §2.4） |
+| 9 | 统计 | /statistics | ECharts 报表 |
+| 10 | 设置 | /settings | 用户/角色/审计/配置/备份 |
+
+### 2.4 扩展模块（P2，已纳入产品范围）
+
+以下模块已在 [`frontend/src/router/index.js`](frontend/src/router/index.js) 与 [`MainLayout.vue`](frontend/src/layouts/MainLayout.vue) 侧栏上线（共 **17** 个一级入口，含子菜单展开项）：
+
+| 模块 | 路由 | 说明 |
+|------|------|------|
+| 全局搜索页 | /search | 顶部栏 debounce 300ms 后跳转独立页（非下拉浮层） |
+| 批量收案 | /case/batch-import | Excel/模板批量导入案件（v1.0 未定义，v2.0 正式入册） |
+| 知识库 | /knowledge/list、/knowledge/create | 文章 CRUD |
+| RAG 问答 | /knowledge/rag | 知识库检索 + LLM（TF-IDF MVP，可选 Qdrant 向量） |
+| 法律检索 | /legal-search | 法规/类案检索（含类案 Tab 内嵌检索） |
+| AI 智能中心 | /ai-hub | OCR、文书生成、问答入口聚合 |
+| 类案检索 | /case-search | 文本相似度 MVP，目标态为向量/语义检索 |
+| 工具集 | /tools | 诉讼费/利息/时效等计算器 |
+| 债权精算 (AC) | /ac-calculator | 外部 iframe（如 localhost:8501） |
+| SSB 省时宝 | /ssb-time-saver | 外部工具集成，多子功能 |
+| 工作汇报 | /work-reports | 汇报记录与模板 |
+| 公文流转 | /document-flow | **基于审批 API 的公文视图**，非独立后端域 |
+| 办公用品 | /office-supplies | 从行政 OA 拆出的独立菜单 |
+| 固定资产 | /fixed-assets | 从行政 OA 拆出的独立菜单 |
+
+> **实现说明**：侧栏 `menuRoutes` 与 `router` 由前端硬编码维护，信息架构以本表为准；不要求 PRD 描述代码耦合细节。
+
+**案件子路由补充（§2 模块2）**：
+
+| 路由 | 页面 |
+|------|------|
+| /case/batch-import | 批量收案 |
 
 ---
 
@@ -145,10 +194,18 @@
 
 #### 1.5 全局快捷搜索
 
-位置：顶部栏居中
-接口：GET /api/search?q={keyword}&type=all
-搜索范围：案件名称、案号、当事人姓名、手机号、客户名
-交互：输入即搜索（debounce 300ms），下拉展示结果列表
+位置：顶部栏居中  
+接口：`GET /api/search?q={keyword}&type=all`  
+搜索范围：案件名称、案号、当事人姓名、手机号、客户名  
+交互：输入即搜索（debounce 300ms），**跳转 `/search` 独立结果页**（v1.0 下拉浮层未实现，见附录矩阵）
+
+#### 1.6 工作台增强（v2.0 已交付）
+
+- 统计卡片：趋势百分比、点击跳转案件/日程、约 5 分钟自动刷新
+- 日历：月/周视图；事件颜色由 `getEventTagType` 映射（与 v1.0 五色规则部分对齐）
+- 待办：逾期置顶、3 天内红色、7 天内橙色 — **已实现**
+- **卷宗智能录入**（`CaseFileIntakePanel`）：传文件 → AI 分析 → 登记备注 → 归入已有案件；未匹配时暂存 `pendingId`、可挂接或发起 `CASE_FILING` 立案审批 — **已实现**
+- **日历多维筛选**（类型/状态/主办/法院）— **已实现**（工作台日程区客户端筛选 + 案件元数据下沉）
 
 ---
 
@@ -170,6 +227,7 @@
 | /case/:id/timeline | 案件动态 | 操作日志+评论 |
 | /case/archive | 归档库 | 已归档案件 |
 | /case/trash | 回收站 | 已删除案件 |
+| /case/batch-import | 批量收案 | Excel/模板导入、校验与结果反馈 |
 
 #### 2.1 案件列表页 (/case/list)
 
@@ -177,7 +235,7 @@
 
 | 筛选项 | 类型 | 选项 |
 |--------|------|------|
-| 案件类型 | 下拉单选 | 民事/商事/仲裁/刑事/行政/非诉 |
+| 案件类型 | 下拉单选 | 民事/商事/仲裁/刑事/行政/非诉（实现含扩展类型如 FINANCIAL_NPA 等，见附录） |
 | 案件状态 | 下拉单选 | 待立案/审理中/结案/归档 |
 | 案件等级 | 下拉单选 | 重要/一般/次要 |
 | 主办律师 | 人员选择 | 系统用户列表 |
@@ -208,7 +266,7 @@
 
 | 字段名 | 字段标识 | 类型 | 必填 | 校验 | 说明 |
 |--------|---------|------|------|------|------|
-| 案件类型 | caseType | 下拉选择 | ✅ | - | 民事/商事/仲裁/刑事/行政/非诉 |
+| 案件类型 | caseType | 下拉选择 | ✅ | - | 民事/商事/仲裁/刑事/行政/非诉（实现含扩展类型，见附录 A.1） |
 | 案件程序 | procedure | 下拉选择 | ✅ | - | 一审/二审/再审/执行/其他 |
 | 案件名称 | caseName | 文本输入 | ✅ | ≤100字 | 为空时根据当事人生成"原告 Vs 被告" |
 | 案件编号 | caseNumber | 文本输入 | ❌ | - | 为空时自动生成：年份-类型-序号 |
@@ -224,7 +282,7 @@
 | 协办律师 | coOwners | 人员多选 | ❌ | - | |
 | 律师助理 | assistants | 人员多选 | ❌ | - | |
 
-**AI智能填充按钮：** 上传法院文书 → OCR识别 → LLM提取要素 → 自动填入表单
+**AI智能填充按钮：** 上传法院文书 → Vision OCR（DeepSeek/Tesseract，见 §4.1）→ `LlmExtractService` 要素提取 → 人工校验 → 自动填入表单
 **查重功能：** GET /api/cases/check-duplicate?name=xxx → 弹窗显示疑似重复案件
 
 ##### B. 当事人及关联方（动态多行）
@@ -344,7 +402,7 @@
 - 树形目录（起诉状/答辩状/原告证据/被告证据/法院文书/代理词/判决书/其他）
 - 面包屑导航
 - 文件列表（checkbox/文件名/大小/上传人/时间/操作）
-- 功能：拖拽上传/断点续传/在线预览/版本管理/标签/搜索/批量操作/新建文档
+- 功能：拖拽上传/分片上传/图片预览/标签/搜索/批量操作/新建文档；**版本号**（`versionNo` 同文件名递增）与 **PDF/图片在线预览**（`/preview` + 鉴权 blob）— **已实现 MVP**
 - AI智能识别入口
 - 一键归档PDF（首面+目录+拼接+书签）
 
@@ -376,54 +434,77 @@
 3. 记录日志（时间/操作人/原状态/新状态）
 4. 支持回退（需权限+填写原因）
 
+**实现状态（v2.0）**：进度条与阶段变更 UI 已上线；6 类案件流程模板、回退权限与原因校验已实现，见附录。
+
 ---
 
 ### 模块4：AI 智能辅助
 
-#### 4.1 AI OCR 智能识别（核心）
+#### 4.1 OCR 与要素提取（双路径）
 
-完整流程：上传→OCR识别→LLM要素提取→展示结果→人工校验→确认回填→原件归档
+**生产路径（推荐）** — `AIDocumentService` + `LlmExtractService`：
 
-**LLM Prompt模板：**
-```
-你是一个法律文书信息提取助手。请从以下法院文书中提取关键信息，以JSON格式返回。
+1. 上传文书（图片/PDF；PDF 可分页渲染后调 Vision，见 `ai.ocr.pdf-vision-max-pages`）
+2. OCR：`ai.ocr.provider` = `deepseek`（Vision）或 `tesseract`（本地文本层）
+3. LLM 要素提取：场景 `EXTRACT` / `DOCUMENT_RECOGNITION_EXTRACT`（见 §4.5）
+4. 前端展示 JSON → 人工校验 → 确认回填表单 → 原件归入案件文档
 
-需要提取的字段：
-- caseNumber: 案号
-- courtName: 法院名称
-- hearingDate: 开庭时间(YYYY-MM-DD HH:mm)
-- hearingPlace: 开庭地点/法庭号
-- judgeName: 承办法官姓名
-- clerkName: 书记员姓名
-- plaintiffName: 原告姓名/名称
-- defendantName: 被告姓名/名称
-- caseReason: 案由
-- contactPhone: 联系电话
-- documentType: 文书类型(传票/判决书/裁定书/通知书/其他)
+**遗留路径** — `POST /api/ai/ocr-upload`（`OcrService`）：返回**模拟数据**，仅用于联调/demo，与生产路径并存，计划合并或标注废弃。
 
-文书内容：
-{ocrText}
-
-请严格返回JSON格式，无法识别的字段填null。
-```
+**LLM 提取字段（与 v1.0 Prompt 一致）**：案号、法院、开庭时间/地点、法官、书记员、原被告、案由、联系电话、文书类型等，输出 JSON。
 
 #### 4.2 AI 文书生成
 
-| 文书类型 | 输入 | 输出 |
-|---------|------|------|
-| 起诉状 | 案件信息+当事人+案由+诉求 | 起诉状初稿(Word) |
-| 答辩状 | 案件信息+对方诉求+答辩意见 | 答辩状初稿(Word) |
-| 代理词 | 案件材料+庭审记录+争议焦点 | 代理词框架(Word) |
-| 法律意见书 | 案件信息+客户需求 | 意见书框架(Word) |
+| 文书类型 | 输入 | 输出 | 路由场景 |
+|---------|------|------|----------|
+| 起诉状 | 案件信息+当事人+案由+诉求 | Word 初稿 | `DOCUMENT` |
+| 答辩状 | 案件信息+对方诉求+答辩意见 | Word 初稿 | `DOCUMENT` |
+| 代理词 | 材料+庭审+争议焦点 | Word 框架 | `DOCUMENT` |
+| 法律意见书 | 案件信息+客户需求 | Word 框架 | `DOCUMENT` |
+| 律师函等 | 按 UI 别名 | 同左 | `LEGACY_DOCUMENT`（`DocGenerateService`） |
+
+术语：PRD 标准四类与前端展示名应对齐（如「律师函」映射到文书生成模板）。
 
 #### 4.3 AI 法律知识问答
 
-两种模式：通用法律问答 / 案件上下文问答
-对话记录自动保存到案件
+| 模式 | 实现 | 场景 |
+|------|------|------|
+| 通用法律问答 | `LegalChatService` | `LEGAL_CHAT` |
+| 案件上下文问答 | `AiChatService` / case-chat API | `GENERAL_CHAT` |
+| 知识库 RAG | `/knowledge/rag`，`RAGService` | `RAG`（TF-IDF MVP；可选 Qdrant 向量） |
+
+对话可关联案件保存；类案检索、案件分析当前为**关键词/文本相似度 MVP**，目标态为语义检索（P2）。
 
 #### 4.4 AI 使用日志
 
-记录：userId/caseId/functionType/inputTokens/outputTokens/model/status/duration
+记录：userId、caseId、functionType、inputTokens、outputTokens、model、status、duration。  
+接口：`GET /api/ai/logs`
+
+#### 4.5 AI 模型路由
+
+按业务场景选择首选 LLM Provider（`AIModelRoutingService` + `AIModelUseCase`）：
+
+| 场景枚举 | 用途 | 配置键（`application.yml`） |
+|----------|------|---------------------------|
+| LEGAL_CHAT | 法律咨询 | `llm.routing.legal-chat` |
+| RAG | 知识库问答 | `llm.routing.rag` |
+| DOCUMENT | 文书生成 | `llm.routing.document` |
+| GENERAL_CHAT | 通用/案件对话 | `llm.routing.general-chat` |
+| EXTRACT | OCR 后要素提取 | `llm.routing.extract` |
+| DOCUMENT_RECOGNITION_EXTRACT | 文档识别结构化抽取 | `llm.routing.document-recognition-extract` |
+| LEGACY_DOCUMENT | 兼容旧版文书生成 | `llm.routing.legacy-document` |
+
+Provider 类型示例：`deepseek`、`qwen`、`lmstudio`（OpenAI 兼容本地模型）。库表 `ai_config.provider_type` 可覆盖默认。
+
+**降级策略**：`llm.fallback.enabled=true` 时，本地/LM Studio 失败后由 `LLMApiService` 按 `llm.fallback.provider` 重试云端（默认 deepseek），`llm.retry` 控制次数。
+
+#### 4.6 AI 可观测性
+
+管理员/主任可查看路由与最近调用摘要：
+
+- 接口：`GET /api/ai/diagnostics`（`AiDiagnosticsController`）
+- 内容：各场景解析后的 Provider、fallback 配置、`LlmRecentCallSnapshot` 最近调用列表
+- 配置：`GET/PUT /api/ai/config`（含按场景 Provider）
 
 ---
 
@@ -461,21 +542,44 @@
 
 **路由：** `/approval`
 
-预置6种模板：用印申请/费用报销/开票申请/请假出差/采购申请/证照借用
-功能：发起/同意/驳回/转审/撤回/催办/进度查看/关联案件/自定义流程配置
+#### 8.1 标准审批类型（规范枚举）
+
+与后端 `ApprovalService.getApprovalTypes()` 一致，**PRD 规范为 6 类**：
+
+| 编码 | 中文名称 |
+|------|----------|
+| SEAL | 用印申请 |
+| REIMBURSEMENT | 费用报销 |
+| INVOICE | 开票申请 |
+| LEAVE | 请假出差 |
+| PURCHASE | 采购申请 |
+| LICENSE | 证照借用 |
+
+功能：发起 / 同意 / 驳回 / 转审 / 撤回 / 催办 / 进度查看 / 关联案件。
+
+#### 8.2 实现差距（v2.0）
+
+| 位置 | 类型选项 | 状态 |
+|------|----------|------|
+| 筛选器 `ApprovalFilter.vue` | 中文标签：用印、费用报销、开票、请假出差、采购、证照借用 | 与 PRD **一致** |
+| 发起表单 `approval/index.vue` | SEAL、REIMBURSEMENT、INVOICE、LEAVE、PURCHASE、LICENSE、CASE_FILING 等 | **已对齐**（类型列表可由 `getApprovalTypes()` 动态加载） |
+| 自定义流程配置 | PRD 要求 | **已实现**（设置 → 审批流程） |
+| 转审 / 催办 | PRD 要求 | API 存在，前端深度待 E2E 验收 |
+
+**注意**：公文流转页复用 `/api/approval`，勿与 `/api/approvals` 混用。
 
 ---
 
 ### 模块9：行政OA
 
-**路由：** `/admin-oa`
+**路由：** `/admin-oa`（办公用品 `/office-supplies`、固定资产 `/fixed-assets` 已拆为独立菜单，见 §2.4）
 
-- 通知公告（发布/范围/已读未读统计）
-- 会议室管理（预约/冲突校验/与开庭联动）
-- 考勤管理（请假出差加班/审批/月度报表）
-- 办公用品管理(P1)
-- 固定资产管理(P1)
-- 知识库(P1)
+- 通知公告（发布/范围/已读未读统计）— **已实现**
+- 会议室管理（预约/冲突校验/与开庭联动）— **已实现**
+- 考勤管理 — 后端 `AttendanceController` + 行政 OA「考勤管理」Tab（`AttendancePanel`）— **已实现**
+- 办公用品 / 固定资产 — **已实现**（独立路由）
+
+> **知识库**已升格为独立模块 `/knowledge`，不再归属行政 OA 章节（见 §2.4）。
 
 ---
 
@@ -492,10 +596,10 @@
 
 ### 模块11：系统管理
 
-**路由：** `/settings`（仅管理员）
+**路由：** `/settings`（敏感操作后端 `@PreAuthorize`；前端路由 **未** 统一 `meta.roles` 限制，依赖接口鉴权）
 
 - 用户管理（CRUD/启用禁用/重置密码）
-- 角色权限RBAC（6种预置角色+自定义）
+- 角色权限 RBAC（**6 种预置角色**，见 §1.2；支持自定义角色）
 - 数据权限隔离（律师看自己/主任看全部）
 - 操作审计日志（AOP切面自动记录）
 - 系统配置（案件类型/案由库/法院库/流程模板/提醒阈值/AI模型）
@@ -549,7 +653,13 @@ GET/POST /api/cases | GET/PUT/DELETE /api/cases/:id | PUT /api/cases/:id/status 
 CRUD /api/calendar | CRUD /api/todos
 
 ### 5.4 AI
-POST /api/ai/ocr-upload | POST /api/ai/extract | POST /api/ai/auto-fill/:caseId | POST /api/ai/generate-doc | POST /api/ai/chat | POST /api/ai/case-chat/:caseId | GET /api/ai/logs | GET/PUT /api/ai/config
+POST /api/ai/ocr-upload（遗留模拟） | POST /api/ai/extract | POST /api/ai/auto-fill/:caseId | POST /api/ai/generate-doc | POST /api/ai/chat | POST /api/ai/case-chat/:caseId | GET /api/ai/logs | GET/PUT /api/ai/config | **GET /api/ai/diagnostics**
+
+### 5.4.1 批量案件
+POST /api/cases/batch-import（批量收案，与 `/case/batch-import` 页面对应）
+
+### 5.4.2 考勤
+CRUD /api/attendance/*（`AttendanceController`）
 
 ### 5.5 客户
 CRUD /api/clients | GET /api/clients/:id/cases | CRUD /api/clients/:id/communications | GET /api/clients/:id/conflict-check
@@ -558,7 +668,10 @@ CRUD /api/clients | GET /api/clients/:id/cases | CRUD /api/clients/:id/communica
 CRUD /api/finance/expenses | GET /api/finance/fees | CRUD /api/finance/payments | CRUD /api/finance/invoices | GET /api/finance/summary/:caseId | GET /api/finance/dashboard
 
 ### 5.7 审批
-CRUD /api/approval | PUT /api/approval/:id/approve|reject|transfer|withdraw | POST /api/approval/:id/urge
+CRUD /api/approval | PUT /api/approval/:id/approve|reject|transfer|withdraw | POST /api/approval/:id/urge | GET /api/approval/types
+
+### 5.7.1 卷宗录入（工作台核心）
+POST /api/case-intake/process | POST /api/case-intake/attach | POST /api/case-intake/attach-pending | POST /api/case-intake/filing-application | GET /api/case-intake/pending | GET /api/case-intake/pending/:id/prefill
 
 ### 5.8 系统管理
 CRUD /api/users | CRUD /api/roles | GET /api/audit-logs | GET/PUT /api/system/config | POST /api/system/backup
@@ -569,6 +682,8 @@ GET /api/search | GET /api/dashboard/stats | CRUD /api/notifications | CRUD /api
 ---
 
 ## 六、非功能需求
+
+> v2.0 实现差距摘要见附录 A.3。
 
 ### 6.1 性能
 - 页面加载 ≤2秒
@@ -597,9 +712,73 @@ Chrome≥90 / Edge≥90 / Firefox≥90 / Safari≥14 / 移动端响应式适配
 ### P1 重要功能（约4个月）
 客户管理 / 财务管理 / 审批管理 / AI文书生成+问答 / 行政OA / 一键归档 / 统计报表 / 移动端适配
 
-### P2 增强功能（按需）
-RAG知识库 / 公文流转 / 类案检索 / 工具集(诉讼费/利息/时效计算器) / 知识库 / 工作汇报
+### P2 扩展模块（已上线，规格见 §2.4）
+
+RAG 知识库 / 法律检索 / AI 智能中心 / 类案检索 / 工具集 + AC 精算 + SSB / 工作汇报 / 公文流转（审批视图）/ 批量收案 — 质量分级见附录「实现状态矩阵」。
 
 ---
 
-*版本：v1.0 | 日期：2026-04-17*
+## 附录 A：实现状态矩阵
+
+> 替代原 `PRD功能清单.md` 的「100% 完成」声明。状态：**已实现** / **部分** / **未实现** / **超出 PRD**。
+
+### A.1 核心模块（P0/P1）
+
+| 模块 | 项 | 状态 | 备注 |
+|------|-----|------|------|
+| 认证 | JWT、5 次锁定 30 分钟 | 已实现 | 与 `application.yml` login 段一致 |
+| 工作台 | 5 统计卡片 | 超出 | 趋势%、跳转、自动刷新 |
+| 工作台 | 日历五色/筛选 | 已实现 | 五色 tag + 类型/案件类型/状态/主办/法院筛选 |
+| 工作台 | 全局搜索 | 已实现 | 顶栏 debounce 300ms → `/search` 独立页 |
+| 案件 | CRUD、5 Tab、看板、批量操作 | 已实现 | |
+| 案件 | 批量收案 | 超出 | `/case/batch-import` |
+| 案件 | 受理单位 4 子 Tab | 已实现 | |
+| 案件 | 文档版本/PDF 预览 | 已实现 | `versionNo` + `/preview` MVP |
+| 案件 | 卷宗智能录入+立案审批桥接 | 已实现 | 工作台录入；`CASE_FILING` 审批通过后预填建案并挂接暂存卷宗 |
+| 案件 | 类型扩展枚举 | 超出 | 多于 PRD 6 类 |
+| 生命周期 | 进度条流转 | 已实现 | 6 类案件模板与后端对齐；回退需原因+负责人/主任权限 |
+| 日程 | 月/周/日视图 | 超出 | PRD 原仅月/周 |
+| 日程 | 审限推送统一管道 | 已实现 | 待办+通知中心 DEADLINE/CASE_DEADLINE |
+| 客户 | CRUD、利益冲突 | 已实现 | 建案前 PartyDTO 映射+冲突审查；未通过/冲突阻断提交；豁免走审批中心 OTHER |
+| 财务 | 多 Tab UI | 已实现 | 费用/收款/开票/律师费 Tab + PageResult |
+| 审批 | 6 类模板（后端） | 已实现 | |
+| 审批 | 创建表单类型 | 已实现 | 与后端枚举一致（含立案/公文/终止委托） |
+| 审批 | 自定义流程 | 已实现 | `/approval/workflow` + 设置页配置 |
+| 行政 | 公告、会议室、办公用品、固定资产 | 已实现 | |
+| 行政 | 考勤 UI | 已实现 | 行政 OA「考勤管理」Tab + 申请/审批 |
+| 统计 | ECharts、导出 | 已实现 | |
+| 系统 | 用户/角色/审计/配置/备份 UI | 已实现 | |
+| 系统 | 前端 /settings 路由守卫 | 已实现 | 校验 SYSTEM_CONFIG / USER_VIEW / ROLE_VIEW |
+
+### A.2 AI 与 P2 扩展
+
+| 模块 | 项 | 状态 | 备注 |
+|------|-----|------|------|
+| AI | 模型路由 7 场景 | 超出 | §4.5 |
+| AI | diagnostics API | 超出 | §4.6 |
+| AI | Vision OCR + 提取 | 已实现 | |
+| AI | ocr-upload 模拟 | 已实现 | @Deprecated；统一 `/ai/documents/recognize` |
+| AI | 文书生成四类 | 已实现 | 术语与 UI 别名待统一 |
+| AI | RAG /legal-chat | 已实现 | LM Studio + fallback |
+| AI | 类案/案件分析语义化 | 已实现 | 文本加权 + `case-search.semantic` Embedding；`GET /cases/{id}/ai-analysis` LLM 分析 |
+| P2 | 知识库、RAG 页 | 已实现 | Qdrant 可选 |
+| P2 | 类案检索 | 已实现 | `POST /case-search/similar`；前端 `/case-search` 对齐案由/类型/相似度 |
+| P2 | 法律检索 | 已实现 | 法规库+AI问答+类案 Tab 内嵌检索 |
+| P2 | 工具集、AC、SSB | 已实现 | iframe 集成 |
+| P2 | 工作汇报 | 已实现 | `GET /work-reports?status=` + CRUD/提交/审核 API 模块 |
+| P2 | 公文流转 | 已实现 | `OFFICIAL_DOC` 审批类型 + 流转记录 |
+| P2 | 全局搜索页 | 超出 | 非下拉 |
+
+### A.3 非功能需求
+
+| 需求 | 状态 | 备注 |
+|------|------|------|
+| MySQL 生产库 | 已实现 | `application-prod.yml` + 环境变量 |
+| Redis | 已实现 | prod profile 启用 Redis |
+| HTTPS | 已实现 | `forward-headers-strategy` + 反向代理 |
+| 移动端响应式 | 已实现 | MainLayout `isMobile` + 主要页适配 |
+| 180 天备份 | 已实现 | 自动/手动备份 + `/system/restore` + 设置页 |
+
+---
+
+*版本：v2.0 | 日期：2026-05-25*

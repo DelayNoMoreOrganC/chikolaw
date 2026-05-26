@@ -67,12 +67,21 @@ public class ClientService {
     }
 
     /**
-     * 更新客户
+     * 更新客户（行政要求：非管理员不可修改客户名称；案源人变更须管理员/主任）
      */
     @Transactional
-    public ClientDTO updateClient(Long id, ClientDTO dto) {
+    public ClientDTO updateClient(Long id, ClientDTO dto, Long operatorId, boolean operatorIsAdmin) {
         Client client = clientRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("客户不存在"));
+
+        if (!operatorIsAdmin) {
+            if (dto.getClientName() != null && !dto.getClientName().equals(client.getClientName())) {
+                throw new IllegalArgumentException("客户名称变更须系统管理员或主任审批后修改");
+            }
+            if (dto.getOwnerId() != null && !dto.getOwnerId().equals(client.getOwnerId())) {
+                throw new IllegalArgumentException("案源人/负责人变更须行政审批，请联系管理员");
+            }
+        }
 
         client.setClientType(dto.getClientType());
         client.setClientName(dto.getClientName());
@@ -93,6 +102,14 @@ public class ClientService {
         log.info("更新客户成功: {}", id);
 
         return convertToDTO(client);
+    }
+
+    /**
+     * @deprecated 使用 {@link #updateClient(Long, ClientDTO, Long, boolean)}
+     */
+    @Transactional
+    public ClientDTO updateClient(Long id, ClientDTO dto) {
+        return updateClient(id, dto, null, true);
     }
 
     /**

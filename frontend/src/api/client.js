@@ -95,6 +95,28 @@ export function deleteCommunication(clientId, communicationId) {
   })
 }
 
+/** Excel 批量导入客户 */
+export function importClients(file, skipConflictRows = true) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request({
+    url: '/clients/import',
+    method: 'post',
+    params: { skipConflictRows },
+    data: formData,
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
+}
+
+/** 新建客户前：按名称检查利冲（含相似名称提示） */
+export function checkClientNameConflict(clientName) {
+  return request({
+    url: '/conflict-check/check-client',
+    method: 'post',
+    params: { clientName }
+  })
+}
+
 // 利益冲突检索
 export function conflictCheck(id) {
   return request({

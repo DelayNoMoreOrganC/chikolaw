@@ -2,6 +2,7 @@
   <div class="client">
     <PageHeader title="客户管理">
       <template #extra>
+        <el-button @click="importDialogVisible = true">Excel 导入</el-button>
         <el-button type="primary" @click="handleCreate" class="create-btn">
           <el-icon><Plus /></el-icon>
           新建客户
@@ -220,6 +221,29 @@
         </el-tab-pane>
       </el-tabs>
     </el-dialog>
+
+    <el-dialog v-model="importDialogVisible" title="Excel 导入客户" width="520px">
+      <p class="import-hint">
+        模板列：客户名称 | 客户类型 | 电话 | 身份证号 | 统一社会信用代码 | 邮箱 | 地址 | 备注（首行为表头）
+      </p>
+      <el-upload
+        drag
+        :auto-upload="false"
+        :limit="1"
+        accept=".xlsx,.xls"
+        :on-change="onImportFileChange"
+      >
+        <el-icon class="el-icon--upload"><Plus /></el-icon>
+        <div class="el-upload__text">拖拽或点击选择 Excel</div>
+      </el-upload>
+      <el-checkbox v-model="skipConflictOnImport" style="margin-top: 12px">
+        跳过利冲行（不阻断整表）
+      </el-checkbox>
+      <template #footer>
+        <el-button @click="importDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="importing" @click="submitImport">开始导入</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -233,7 +257,8 @@ import {
   getClientList,
   deleteClient,
   searchClients,
-  conflictCheck
+  conflictCheck,
+  importClients
 } from '@/api/client'
 
 const router = useRouter()
@@ -251,6 +276,36 @@ const conflictResult = ref(null)
 const currentClient = ref({})
 
 const clientList = ref([])
+const importDialogVisible = ref(false)
+const importFile = ref(null)
+const importing = ref(false)
+const skipConflictOnImport = ref(true)
+
+const onImportFileChange = (file) => {
+  importFile.value = file.raw
+}
+
+const submitImport = async () => {
+  if (!importFile.value) {
+    ElMessage.warning('请选择 Excel 文件')
+    return
+  }
+  importing.value = true
+  try {
+    const res = await importClients(importFile.value, skipConflictOnImport.value)
+    const data = res.data || {}
+    ElMessage.success(
+      `导入完成：成功 ${data.successRows || 0}，失败 ${data.failedRows || 0}，利冲跳过 ${data.conflictRows || 0}`
+    )
+    importDialogVisible.value = false
+    importFile.value = null
+    fetchClientList()
+  } catch (e) {
+    ElMessage.error(e.message || '导入失败')
+  } finally {
+    importing.value = false
+  }
+}
 
 // 加载客户列表
 const fetchClientList = async () => {
