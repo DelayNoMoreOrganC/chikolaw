@@ -143,8 +143,12 @@ public class CaseService {
         caseEntity.setRiskFee(request.getRiskFee());
         caseEntity.setFeeRemark(request.getFeeRemark());
 
-        // 设置初始状态
-        caseEntity.setStatus(CaseStatus.CONSULTATION.getCode());
+        // 设置初始状态（卷宗立案草稿使用 PENDING_FILING）
+        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+            caseEntity.setStatus(request.getStatus().trim());
+        } else {
+            caseEntity.setStatus(CaseStatus.CONSULTATION.getCode());
+        }
         caseEntity.setOwnerId(request.getOwnerId());
 
         // 保存案件

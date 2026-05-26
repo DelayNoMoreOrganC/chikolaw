@@ -93,6 +93,19 @@ public class NotificationService {
                 CATEGORY_APPROVAL, GROUP_APPROVAL, approvalId, "Approval");
     }
 
+    /** 立案审批通过且已生成草稿案件时通知申请人完善草稿 */
+    @Transactional
+    public void sendCaseFilingDraftReadyNotification(Long applicantId, Long approvalId, String title,
+                                                     Long draftCaseId, boolean intakeAttached) {
+        if (applicantId == null || draftCaseId == null) {
+            return;
+        }
+        String attachHint = intakeAttached ? "卷宗已归入草稿案件。" : "卷宗挂接未完成，请在案件卷宗中手动补传。";
+        save(applicantId, "立案草稿已生成",
+                String.format("「%s」已通过，系统已创建待立案草稿，%s请完善当事人等信息后正式立案。", title, attachHint),
+                CATEGORY_APPROVAL, GROUP_APPROVAL, draftCaseId, "CaseDraft");
+    }
+
     private void save(Long userId, String title, String content, String category, String categoryGroup,
                       Long relatedId, String relatedType) {
         Notification notification = new Notification();
@@ -273,6 +286,8 @@ public class NotificationService {
         switch (type) {
             case "Case":
                 return "/case/" + n.getRelatedId();
+            case "CaseDraft":
+                return "/case/" + n.getRelatedId() + "/edit";
             case "Todo":
                 return "/calendar";
             case "Approval":

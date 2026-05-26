@@ -30,4 +30,9 @@ public class CaseIntakePrefillDTO {
 
     /** 建议案件名称 */
     private String suggestedCaseName;
+
+    /** 审批通过后已生成的草稿案件 ID（若有） */
+    private Long draftCaseId;
+
+    private String draftCaseNumber;
 }

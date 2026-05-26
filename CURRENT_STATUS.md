@@ -27,7 +27,7 @@
 
 ### 卷宗智能录入
 - 工作台 `CaseFileIntakePanel` → `POST /api/case-intake/process`
-- 未匹配：`NEEDS_CASE` + `pendingId`；挂接 `attach-pending`；立案 `CASE_FILING` 审批 → 预填建案
+- 未匹配：`NEEDS_CASE` + `pendingId`；挂接 `attach-pending`；立案 `CASE_FILING` 审批通过 → **自动待立案草稿** + 卷宗挂接 → 引导完善
 - **不自动建案**（回归约束）
 
 ### 审批与工作流
@@ -52,7 +52,7 @@
 
 | 优先级 | 项 |
 |--------|-----|
-| P1 | 立案审批通过后申请人/审批人「去立案」引导（已实现，可再做自动建案草稿） |
+| P1 | 立案审批通过后自动草稿案件（`PENDING_FILING`）+ 完善引导 |
 | P2 | 审批转审/催办 | 转审选人对话框 + 催办按钮已接入 |
 | P2 | Office 文档在线预览 |
 | — | **消息通知中心** | 顶栏铃铛 + 抽屉分类（待办/案件/审批）+ 审批待办/结果/催办推送 |

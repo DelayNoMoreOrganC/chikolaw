@@ -5,13 +5,20 @@ import com.lawfirm.dto.AIDocumentRecognitionResult;
 import com.lawfirm.dto.ApprovalCreateRequest;
 import com.lawfirm.dto.ApprovalDTO;
 import com.lawfirm.dto.CaseFileIntakeResult;
+import com.lawfirm.dto.CaseCreateRequest;
+import com.lawfirm.dto.CaseIntakeDraftResultDTO;
 import com.lawfirm.dto.CaseIntakePrefillDTO;
+import com.lawfirm.dto.PartyDTO;
+import com.lawfirm.entity.Case;
 import com.lawfirm.entity.CaseIntakePending;
 import com.lawfirm.entity.Role;
 import com.lawfirm.entity.UserRole;
+import com.lawfirm.enums.CaseStatus;
 import com.lawfirm.repository.CaseIntakePendingRepository;
+import com.lawfirm.repository.CaseRepository;
 import com.lawfirm.repository.RoleRepository;
 import com.lawfirm.repository.UserRoleRepository;
+import com.lawfirm.vo.CaseDetailVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -23,6 +30,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -36,6 +46,8 @@ public class CaseIntakePendingService {
     private final CaseIntakePendingRepository pendingRepository;
     private final CaseFileIntakeService caseFileIntakeService;
     private final ApprovalService approvalService;
+    private final CaseService caseService;
+    private final CaseRepository caseRepository;
     private final RoleRepository roleRepository;
     private final UserRoleRepository userRoleRepository;
     private final ObjectMapper objectMapper;
@@ -44,12 +56,16 @@ public class CaseIntakePendingService {
             CaseIntakePendingRepository pendingRepository,
             @Lazy CaseFileIntakeService caseFileIntakeService,
             ApprovalService approvalService,
+            @Lazy CaseService caseService,
+            CaseRepository caseRepository,
             RoleRepository roleRepository,
             UserRoleRepository userRoleRepository,
             ObjectMapper objectMapper) {
         this.pendingRepository = pendingRepository;
         this.caseFileIntakeService = caseFileIntakeService;
         this.approvalService = approvalService;
+        this.caseService = caseService;
+        this.caseRepository = caseRepository;
         this.roleRepository = roleRepository;
         this.userRoleRepository = userRoleRepository;
         this.objectMapper = objectMapper;
@@ -89,8 +105,15 @@ public class CaseIntakePendingService {
         CaseIntakePending pending = pendingRepository.findByIdAndUserIdAndDeletedFalse(pendingId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("暂存记录不存在"));
 
-        if (!"PENDING".equals(pending.getStatus())) {
+        String st = pending.getStatus();
+        if (!"PENDING".equals(st) && !"FILING_APPROVED".equals(st) && !"DRAFT_CREATED".equals(st)) {
             throw new IllegalArgumentException("该暂存文件已处理");
+        }
+        if (pending.getCaseId() != null && pending.getCaseId().equals(caseId) && "ATTACHED".equals(st)) {
+            CaseFileIntakeResult already = new CaseFileIntakeResult();
+            already.setStatus("SUCCESS");
+            already.setPendingId(pendingId);
+            return already;
         }
 
         MultipartFileAdapter file = new MultipartFileAdapter(pending);
@@ -157,7 +180,65 @@ public class CaseIntakePendingService {
             dto.setDocumentType(rec.getDocumentType());
             dto.setSuggestedCaseName(buildSuggestedCaseName(rec));
         }
+        if (pending.getCaseId() != null) {
+            dto.setDraftCaseId(pending.getCaseId());
+            caseRepository.findById(pending.getCaseId()).ifPresent(c -> {
+                dto.setDraftCaseNumber(c.getCaseNumber());
+                if (dto.getSuggestedCaseName() == null) {
+                    dto.setSuggestedCaseName(c.getCaseName());
+                }
+            });
+        }
         return dto;
+    }
+
+    /**
+     * 立案审批通过后：创建待立案草稿并挂接卷宗（不替代人工核对必填项）。
+     */
+    @Transactional
+    public CaseIntakeDraftResultDTO createDraftCaseAfterFilingApproved(Long pendingId, Long applicantUserId) {
+        CaseIntakePending pending = pendingRepository.findById(pendingId)
+                .filter(p -> !Boolean.TRUE.equals(p.getDeleted()))
+                .orElseThrow(() -> new IllegalArgumentException("暂存记录不存在"));
+
+        CaseIntakeDraftResultDTO result = new CaseIntakeDraftResultDTO();
+        result.setPendingId(pendingId);
+
+        if (pending.getCaseId() != null) {
+            Case existing = caseRepository.findById(pending.getCaseId()).orElse(null);
+            if (existing != null) {
+                result.setDraftCaseId(existing.getId());
+                result.setCaseNumber(existing.getCaseNumber());
+                result.setCaseName(existing.getCaseName());
+                result.setIntakeAttached(true);
+                return result;
+            }
+        }
+
+        AIDocumentRecognitionResult rec = parseRecognition(pending.getRecognitionJson());
+        CaseCreateRequest request = buildDraftRequest(rec, pending, applicantUserId);
+        CaseDetailVO created = caseService.createCase(request, applicantUserId);
+
+        pending.setCaseId(created.getId());
+        pending.setStatus("DRAFT_CREATED");
+        pendingRepository.save(pending);
+
+        boolean attached = false;
+        try {
+            CaseFileIntakeResult attachResult = attachFromPending(
+                    pendingId, created.getId(), applicantUserId, pending.getRemark());
+            attached = "SUCCESS".equals(attachResult.getStatus());
+        } catch (Exception e) {
+            log.warn("草稿案件已创建但卷宗挂接失败: pendingId={}, caseId={}, err={}",
+                    pendingId, created.getId(), e.getMessage());
+        }
+
+        result.setDraftCaseId(created.getId());
+        result.setCaseNumber(created.getCaseNumber());
+        result.setCaseName(created.getCaseName());
+        result.setIntakeAttached(attached);
+        log.info("立案审批草稿已创建: pendingId={}, caseId={}, attached={}", pendingId, created.getId(), attached);
+        return result;
     }
 
     @Transactional
@@ -171,6 +252,73 @@ public class CaseIntakePendingService {
                 pendingRepository.save(p);
             }
         });
+    }
+
+    private CaseCreateRequest buildDraftRequest(AIDocumentRecognitionResult rec,
+                                                CaseIntakePending pending,
+                                                Long applicantUserId) {
+        CaseCreateRequest request = new CaseCreateRequest();
+        request.setCaseType("CIVIL");
+        request.setProcedure("FIRST_INSTANCE");
+        request.setLevel("GENERAL");
+        request.setOwnerId(applicantUserId);
+        request.setStatus(CaseStatus.PENDING_FILING.getCode());
+
+        String name = buildSuggestedCaseName(rec);
+        request.setCaseName(name != null ? name : "待完善案件（卷宗立案）");
+        if (rec != null) {
+            request.setCaseReason(rec.getCaseReason());
+            request.setCourt(rec.getCourtName());
+            if (rec.getCaseNumber() != null && !rec.getCaseNumber().isBlank()) {
+                request.setCourtCaseNumber(rec.getCaseNumber().trim());
+            }
+            request.setHearingDate(parseDate(rec.getHearingDate()));
+        }
+        String summary = pending.getRemark() != null ? pending.getRemark() : "";
+        summary = "[卷宗立案草稿] " + summary + "\n请完善当事人、收费方式等必填项后正式立案。";
+        request.setSummary(summary.trim());
+
+        List<PartyDTO> parties = new ArrayList<>();
+        if (rec != null && rec.getPlaintiffName() != null && !rec.getPlaintiffName().isBlank()) {
+            PartyDTO p = new PartyDTO();
+            p.setPartyType("INDIVIDUAL");
+            p.setPartyRole("PLAINTIFF");
+            p.setName(rec.getPlaintiffName().trim());
+            p.setIsClient(true);
+            parties.add(p);
+        }
+        if (rec != null && rec.getDefendantName() != null && !rec.getDefendantName().isBlank()) {
+            PartyDTO d = new PartyDTO();
+            d.setPartyType("INDIVIDUAL");
+            d.setPartyRole("DEFENDANT");
+            d.setName(rec.getDefendantName().trim());
+            parties.add(d);
+        }
+        if (parties.isEmpty()) {
+            PartyDTO placeholder = new PartyDTO();
+            placeholder.setPartyType("INDIVIDUAL");
+            placeholder.setPartyRole("PLAINTIFF");
+            placeholder.setName("待补充当事人");
+            placeholder.setIsClient(true);
+            parties.add(placeholder);
+        }
+        request.setParties(parties);
+        return request;
+    }
+
+    private LocalDate parseDate(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String s = raw.trim();
+        try {
+            if (s.length() >= 10) {
+                return LocalDate.parse(s.substring(0, 10));
+            }
+            return LocalDate.parse(s, DateTimeFormatter.ofPattern("yyyy/M/d"));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private String buildSuggestedCaseName(AIDocumentRecognitionResult rec) {

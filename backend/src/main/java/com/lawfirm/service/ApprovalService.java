@@ -7,9 +7,9 @@ import com.lawfirm.entity.*;
 import com.lawfirm.enums.ApprovalStatus;
 import com.lawfirm.repository.*;
 import com.lawfirm.util.PageResult;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -24,7 +24,6 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ApprovalService {
 
     private final ApprovalRepository approvalRepository;
@@ -35,6 +34,28 @@ public class ApprovalService {
     private final CaseIntakePendingRepository caseIntakePendingRepository;
     private final ApprovalWorkflowService approvalWorkflowService;
     private final ObjectMapper objectMapper;
+    private final CaseIntakePendingService caseIntakePendingService;
+
+    public ApprovalService(
+            ApprovalRepository approvalRepository,
+            ApprovalFlowRepository approvalFlowRepository,
+            UserRepository userRepository,
+            CaseRepository caseRepository,
+            NotificationService notificationService,
+            CaseIntakePendingRepository caseIntakePendingRepository,
+            ApprovalWorkflowService approvalWorkflowService,
+            ObjectMapper objectMapper,
+            @Lazy CaseIntakePendingService caseIntakePendingService) {
+        this.approvalRepository = approvalRepository;
+        this.approvalFlowRepository = approvalFlowRepository;
+        this.userRepository = userRepository;
+        this.caseRepository = caseRepository;
+        this.notificationService = notificationService;
+        this.caseIntakePendingRepository = caseIntakePendingRepository;
+        this.approvalWorkflowService = approvalWorkflowService;
+        this.objectMapper = objectMapper;
+        this.caseIntakePendingService = caseIntakePendingService;
+    }
 
     public static final String TYPE_OFFICIAL_DOC = "OFFICIAL_DOC";
     public static final String TYPE_CASE_TERMINATION = "CASE_TERMINATION";
@@ -128,14 +149,28 @@ public class ApprovalService {
         // 记录流程
         recordFlow(approvalId, approverId, "APPROVE", comments);
 
+        boolean filingDraftNotified = false;
         if (TYPE_CASE_FILING.equals(approval.getApprovalType())) {
             Long pendingId = parseIntakePendingId(approval.getAttachments());
             if (pendingId != null) {
                 markIntakeFilingApproved(pendingId, approvalId);
+                try {
+                    CaseIntakeDraftResultDTO draft = caseIntakePendingService.createDraftCaseAfterFilingApproved(
+                            pendingId, approval.getApplicantId());
+                    if (draft.getDraftCaseId() != null && approval.getApplicantId() != null) {
+                        notificationService.sendCaseFilingDraftReadyNotification(
+                                approval.getApplicantId(), approvalId, approval.getTitle(),
+                                draft.getDraftCaseId(), draft.isIntakeAttached());
+                        filingDraftNotified = true;
+                    }
+                } catch (Exception e) {
+                    log.warn("立案审批通过后创建草稿案件失败: pendingId={}, approvalId={}, err={}",
+                            pendingId, approvalId, e.getMessage());
+                }
             }
         }
 
-        if (approval.getApplicantId() != null && !approval.getApplicantId().equals(approverId)) {
+        if (approval.getApplicantId() != null && !approval.getApplicantId().equals(approverId) && !filingDraftNotified) {
             notificationService.sendApprovalResultNotification(
                     approval.getApplicantId(), approvalId, approval.getTitle(), true);
         }

@@ -9,8 +9,9 @@
 | 1.1 | 上传 PDF/图片到「卷宗智能录入」，不选案件 | AI 分析完成；状态 `NEEDS_CASE`；返回 `pendingId` |
 | 1.2 | 选择已有案件 →「确认归档」 | 使用 `attach-pending`，无需重传；`SUCCESS`；案件动态有 `FILE_INTAKE` |
 | 1.3 | 再次上传未匹配文书 →「发起立案申请」 | 弹窗提交；审批中心出现「立案申请」类型 |
-| 1.3b | 主任同意立案审批 | 提示「去新建案件」；`/case/create?intakePendingId=` 预填当事人/案由/案号 |
-| 1.3c | 保存新建案件 | 建案成功后自动 `attach-pending` 归入卷宗 |
+| 1.3b | 主任同意立案审批 | 系统自动创建 `PENDING_FILING` 草稿案件并挂接卷宗；通知/弹窗引导至 `/case/{id}/edit` |
+| 1.3c | 完善草稿并保存 | 编辑页展示「卷宗立案草稿」提示；无需重复 `attach-pending` |
+| 1.3d | （旧数据无草稿时）申请人点「完善立案」 | 回退 `/case/create?intakePendingId=` 预填后建案并挂接 |
 | 1.4 | 上传时预选案件或案号可匹配 | 直接 `SUCCESS`，文档进入对应文件夹 |
 
 ## 2. 案件阶段与待办
@@ -39,7 +40,7 @@
 ## 回归注意
 
 - **不自动建案**：未匹配不得创建 `Case` 记录。
-- 立案审批通过后：主任在待办同意后可弹窗「去新建案件」；申请人在「我发起的」可点「去立案」。
+- 立案审批通过后：默认自动草稿 + 挂接卷宗；主任同意后可弹窗「完善案件草稿」；申请人在「我发起的」可点「完善立案」。
 - 自动化：`mvn test -Dtest=CaseFileIntakeServiceTest,CaseIntakePendingServiceTest`
 
 ## 审批 E2E（Sprint 0）

@@ -15,6 +15,15 @@
       </template>
     </PageHeader>
 
+    <el-alert
+      v-if="filingDraftBanner"
+      class="filing-draft-banner"
+      type="info"
+      :closable="false"
+      show-icon
+      :title="filingDraftBanner"
+    />
+
     <div class="create-container">
       <el-form
         ref="formRef"
@@ -1529,9 +1538,11 @@ const createdCaseId = ref(null) // 记录创建的案件ID，用于审批关联
 const intakePendingId = computed(() => route.query.intakePendingId
   ? Number(route.query.intakePendingId)
   : null)
+const intakeAlreadyAttached = ref(false)
+const filingDraftBanner = ref('')
 
 const attachIntakeAfterCreate = async (newCaseId) => {
-  if (!intakePendingId.value || !newCaseId) return
+  if (!intakePendingId.value || !newCaseId || intakeAlreadyAttached.value) return
   try {
     const res = await attachCaseIntakeFromPending(
       intakePendingId.value,
@@ -1552,6 +1563,11 @@ const applyIntakePrefill = async () => {
     const res = await getIntakePrefill(intakePendingId.value)
     if (!(res.code === 200 || res.success) || !res.data) return
     const p = res.data
+    if (p.draftCaseId) {
+      intakeAlreadyAttached.value = true
+      router.replace(`/case/${p.draftCaseId}/edit`)
+      return
+    }
     if (!formData.caseType) formData.caseType = 'CIVIL'
     if (!formData.procedure) formData.procedure = 'FIRST_INSTANCE'
     if (p.suggestedCaseName) formData.caseName = p.suggestedCaseName
@@ -2378,6 +2394,11 @@ onMounted(async () => {
         formData.closeDate = caseData.closeDate || null
         formData.archiveDate = caseData.archiveDate || null
       }
+
+      if ((formData.summary || '').includes('[卷宗立案草稿]')) {
+        filingDraftBanner.value =
+          '本案件为立案审批自动生成的草稿，请核对当事人、收费方式等必填项后保存或确认立案。'
+      }
     } catch (error) {
       ElMessage.error('加载案件数据失败')
       router.push('/case/list')
@@ -2388,6 +2409,10 @@ onMounted(async () => {
 
 <style scoped lang="scss">
 .case-create {
+  .filing-draft-banner {
+    margin: 0 0 16px;
+  }
+
   .create-container {
     background-color: #fff;
     padding: 30px;

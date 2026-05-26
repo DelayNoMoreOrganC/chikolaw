@@ -126,7 +126,7 @@
                   size="small"
                   @click="goCreateCaseFromFiling(row)"
                 >
-                  去立案
+                  完善立案
                 </el-button>
                 <el-button
                   link
@@ -259,6 +259,7 @@ import {
 } from '@/api/approval'
 import { getCaseList } from '@/api/case'
 import { getUserList } from '@/api/user'
+import { getIntakePrefill } from '@/api/caseIntake'
 
 const router = useRouter()
 const route = useRoute()
@@ -322,13 +323,26 @@ const parseIntakePendingId = (attachments) => {
 const isApproved = (row) =>
   row.status === 'APPROVED' || row.status === '已同意' || row.statusDesc === '已同意'
 
+const navigateAfterFilingApproval = async (pendingId) => {
+  try {
+    const res = await getIntakePrefill(pendingId)
+    if ((res.code === 200 || res.success) && res.data?.draftCaseId) {
+      router.push(`/case/${res.data.draftCaseId}/edit`)
+      return
+    }
+  } catch {
+    /* 回退到新建页预填 */
+  }
+  router.push({ path: '/case/create', query: { intakePendingId: String(pendingId) } })
+}
+
 const goCreateCaseFromFiling = async (row) => {
   const pendingId = parseIntakePendingId(row.attachments)
   if (!pendingId) {
     ElMessage.warning('未找到关联的卷宗暂存编号')
     return
   }
-  router.push({ path: '/case/create', query: { intakePendingId: String(pendingId) } })
+  await navigateAfterFilingApproval(pendingId)
 }
 
 const loadApprovalTypes = async () => {
@@ -346,13 +360,30 @@ const loadApprovalTypes = async () => {
 }
 
 const promptGoCreateCaseAfterFiling = async (pendingId) => {
+  let draftCaseId = null
   try {
-    await ElMessageBox.confirm(
-      '识别信息将自动预填，建案成功后卷宗文件将自动归入新案件卷宗。',
-      '立案审批已通过',
-      { confirmButtonText: '去新建案件', cancelButtonText: '稍后', type: 'success' }
-    )
-    router.push({ path: '/case/create', query: { intakePendingId: String(pendingId) } })
+    const res = await getIntakePrefill(pendingId)
+    if ((res.code === 200 || res.success) && res.data?.draftCaseId) {
+      draftCaseId = res.data.draftCaseId
+    }
+  } catch {
+    /* ignore */
+  }
+  const message = draftCaseId
+    ? '系统已根据卷宗识别结果创建待立案草稿，卷宗已挂接。请完善当事人、收费方式等必填项。'
+    : '识别信息将自动预填，建案成功后卷宗文件将自动归入新案件卷宗。'
+  const confirmText = draftCaseId ? '完善案件草稿' : '去新建案件'
+  try {
+    await ElMessageBox.confirm(message, '立案审批已通过', {
+      confirmButtonText: confirmText,
+      cancelButtonText: '稍后',
+      type: 'success'
+    })
+    if (draftCaseId) {
+      router.push(`/case/${draftCaseId}/edit`)
+    } else {
+      router.push({ path: '/case/create', query: { intakePendingId: String(pendingId) } })
+    }
   } catch {
     /* 用户选择稍后 */
   }
