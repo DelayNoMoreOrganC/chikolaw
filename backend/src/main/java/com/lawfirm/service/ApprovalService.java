@@ -93,6 +93,13 @@ public class ApprovalService {
         // 记录流程
         recordFlow(approval.getId(), currentUserId, "SUBMIT", "提交审批");
 
+        if (ApprovalStatus.PENDING.getCode().equals(approval.getStatus())
+                && approval.getCurrentApproverId() != null
+                && !approval.getCurrentApproverId().equals(currentUserId)) {
+            notificationService.sendApprovalPendingNotification(
+                    approval.getCurrentApproverId(), approval.getId(), approval.getTitle());
+        }
+
         return toDTO(approval);
     }
 
@@ -127,6 +134,11 @@ public class ApprovalService {
                 markIntakeFilingApproved(pendingId, approvalId);
             }
         }
+
+        if (approval.getApplicantId() != null && !approval.getApplicantId().equals(approverId)) {
+            notificationService.sendApprovalResultNotification(
+                    approval.getApplicantId(), approvalId, approval.getTitle(), true);
+        }
     }
 
     /**
@@ -153,6 +165,11 @@ public class ApprovalService {
 
         // 记录流程
         recordFlow(approvalId, approverId, "REJECT", comments);
+
+        if (approval.getApplicantId() != null && !approval.getApplicantId().equals(approverId)) {
+            notificationService.sendApprovalResultNotification(
+                    approval.getApplicantId(), approvalId, approval.getTitle(), false);
+        }
     }
 
     /**
@@ -254,7 +271,7 @@ public class ApprovalService {
                 content,
                 NotificationService.CATEGORY_APPROVAL,
                 approvalId,
-                "APPROVAL_URGE"
+                "Approval"
         );
 
         log.info("审批单 {} 已催办，通知审批人：{}", approvalId, approval.getCurrentApproverId());

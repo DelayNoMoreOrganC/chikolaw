@@ -34,6 +34,10 @@ public class Notification extends LogicalDeleteEntity {
     @Column(length = 50)
     private String category;
 
+    /** 聚合分类：TODO / CASE / CALENDAR / APPROVAL / SYSTEM */
+    @Column(name = "category_group", length = 20)
+    private String categoryGroup;
+
     @Column(name = "related_id")
     private Long relatedId;
 

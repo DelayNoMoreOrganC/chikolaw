@@ -127,9 +127,10 @@
 
     <!-- 通知面板 -->
     <NotificationPanel
+      ref="notificationPanelRef"
       v-model="showNotificationPanel"
-      :unreadCount="unreadCount"
-      @update:unreadCount="updateUnreadCount"
+      :unread-count="unreadCount"
+      @update:unread-count="updateUnreadCount"
     />
   </el-container>
 </template>
@@ -141,7 +142,7 @@ import { useUserStore, useAppStore } from '@/stores'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AIAssistant from '@/views/ai/assistant.vue'
 import NotificationPanel from '@/components/NotificationPanel.vue'
-import request from '@/utils/request'
+import { getUnreadCount } from '@/api/notification'
 
 const route = useRoute()
 const router = useRouter()
@@ -333,6 +334,7 @@ const handleSearch = () => {
 // 通知
 const unreadCount = ref(0)
 const showNotificationPanel = ref(false)
+const notificationPanelRef = ref(null)
 const showNotifications = () => {
   showNotificationPanel.value = true
 }
@@ -341,16 +343,15 @@ const showNotifications = () => {
 const updateUnreadCount = async (count) => {
   if (typeof count === 'number') {
     unreadCount.value = count
-  } else {
-    // 如果没有传count，从服务器获取
-    try {
-      const response = await request.get('/notification/unread-count')
-      if (response.code === 200) {
-        unreadCount.value = response.data
-      }
-    } catch (error) {
-      console.error('获取未读数量失败:', error)
+    return
+  }
+  try {
+    const res = await getUnreadCount()
+    if (res.code === 200) {
+      unreadCount.value = res.data ?? 0
     }
+  } catch (error) {
+    console.error('获取未读数量失败:', error)
   }
 }
 

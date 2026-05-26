@@ -33,4 +33,12 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
      * 根据分类查找通知
      */
     Page<Notification> findByReceiverIdAndCategoryOrderByCreatedAtDesc(Long receiverId, String category, Pageable pageable);
+
+    /**
+     * 按聚合分类筛选
+     */
+    Page<Notification> findByReceiverIdAndCategoryGroupOrderByCreatedAtDesc(
+            Long receiverId, String categoryGroup, Pageable pageable);
+
+    long countByReceiverIdAndCategoryGroupAndIsReadFalse(Long receiverId, String categoryGroup);
 }

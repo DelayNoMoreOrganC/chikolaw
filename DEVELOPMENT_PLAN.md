@@ -16,6 +16,6 @@
 1. **Sprint 0（稳定交付）**：卷宗录入 E2E、测试、`mvn test`、文档同步  
 2. **Sprint 1（行政合规）**：客户 Excel 导入、建案字段、名称/负责人变更权限  
 3. **Sprint 2（AI 生产化）**：语义类案、LLM 案件分析、Agent/OCR 配置收敛  
-4. **Sprint 3（体验）**：Office 预览、通知中心、移动端回归  
+4. **Sprint 3（体验）**：Office 预览、~~通知中心~~（已上线）、移动端回归  
 
 详细说明见项目计划文档（Cursor Plan）及 `CURRENT_STATUS.md`。
