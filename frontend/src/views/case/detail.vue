@@ -21,6 +21,9 @@
           <el-icon><ChatDotRound /></el-icon>
           AI助手
         </el-button>
+        <el-button :loading="aiAnalysisLoading" @click="handleAiCaseAnalysis">
+          案件分析
+        </el-button>
         <el-button @click="handleArchive">
           <el-icon><FolderOpened /></el-icon>
           归档
@@ -47,6 +50,16 @@
       :case-id="currentCaseId"
       :case-mode="true"
     />
+
+    <el-dialog v-model="aiAnalysisVisible" title="AI 案件分析" width="640px">
+      <div v-loading="aiAnalysisLoading" class="ai-analysis-body">
+        <p v-if="aiAnalysisMeta" class="ai-analysis-meta">
+          引擎：{{ aiAnalysisMeta.provider || '-' }} · 模式：{{ aiAnalysisMeta.mode || 'llm' }}
+        </p>
+        <pre v-if="aiAnalysisText" class="ai-analysis-text">{{ aiAnalysisText }}</pre>
+        <el-empty v-else description="暂无分析结果" />
+      </div>
+    </el-dialog>
     </div>
 
     <!-- 进度条 -->
@@ -105,7 +118,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, Edit, FolderOpened, ArrowDown, Select, ChatDotRound
 } from '@element-plus/icons-vue'
-import { getCaseDetail, updateCaseStatus, rollbackCaseStatus, archiveCase, deleteCase } from '@/api/case'
+import { getCaseDetail, updateCaseStatus, rollbackCaseStatus, archiveCase, deleteCase, analyzeCaseById } from '@/api/case'
 import { getStagesByCaseType } from '@/config/case-lifecycle'
 import AIAssistant from '@/views/ai/assistant.vue'
 
@@ -115,6 +128,10 @@ const router = useRouter()
 const loading = ref(false)
 const activeTab = ref('basic')
 const aiAssistantVisible = ref(false)
+const aiAnalysisVisible = ref(false)
+const aiAnalysisLoading = ref(false)
+const aiAnalysisText = ref('')
+const aiAnalysisMeta = ref(null)
 const caseDetail = reactive({
   id: '',
   caseName: '',
@@ -186,6 +203,25 @@ const handleEdit = () => {
 // 显示AI助手
 const showAIAssistant = () => {
   aiAssistantVisible.value = true
+}
+
+const handleAiCaseAnalysis = async () => {
+  if (!caseDetail.id) return
+  aiAnalysisVisible.value = true
+  aiAnalysisLoading.value = true
+  aiAnalysisText.value = ''
+  aiAnalysisMeta.value = null
+  try {
+    const res = await analyzeCaseById(caseDetail.id)
+    const data = res.data || {}
+    aiAnalysisText.value = data.analysis || ''
+    aiAnalysisMeta.value = { provider: data.provider, mode: data.mode }
+  } catch (e) {
+    ElMessage.error(e.message || '案件分析失败')
+    aiAnalysisVisible.value = false
+  } finally {
+    aiAnalysisLoading.value = false
+  }
 }
 
 // 当前案件ID（传递给AI助手）
@@ -664,6 +700,22 @@ onMounted(() => {
       border-top: 1px solid #e4e7ed;
       font-size: 14px;
       color: #606266;
+    }
+  }
+
+  .ai-analysis-body {
+    min-height: 120px;
+    .ai-analysis-meta {
+      font-size: 12px;
+      color: #909399;
+      margin-bottom: 12px;
+    }
+    .ai-analysis-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 14px;
+      line-height: 1.6;
+      margin: 0;
     }
   }
 

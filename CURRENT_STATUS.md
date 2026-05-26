@@ -44,6 +44,7 @@
 - 类案检索：文本加权 + 可选 Embedding 语义增强
 - Agent：`GET /api/agent/runtime/status`；生产配置见 `application-prod.yml`
 - OCR 遗留路径已标注 `@Deprecated`，统一 `/api/ai/documents/recognize`
+- 案件详情页「案件分析」按钮 → `GET /api/cases/{id}/ai-analysis`
 
 ---
 
@@ -51,8 +52,8 @@
 
 | 优先级 | 项 |
 |--------|-----|
-| P1 | 立案审批通过后仍须人工「新建案件」（可接自动回调） |
-| P2 | 审批转审/催办前端 E2E 深度验收 |
+| P1 | 立案审批通过后申请人/审批人「去立案」引导（已实现，可再做自动建案草稿） |
+| P2 | 审批转审/催办 | 转审选人对话框 + 催办按钮已接入 |
 | P2 | Office 文档在线预览 |
 | P3 | AI 文书术语与 UI 别名统一 |
 
@@ -82,7 +83,7 @@ cd frontend && npm run dev
 cd backend && mvn test
 ```
 
-含 `CaseFileIntakeServiceTest`、`ApprovalWorkflowServiceTest`、`CaseFlowDefinitionServiceTest` 等。
+含 `CaseFileIntakeServiceTest`、`CaseIntakePendingServiceTest`、`ApprovalWorkflowServiceTest`、`CaseFlowDefinitionServiceTest` 等。
 
 ---
 

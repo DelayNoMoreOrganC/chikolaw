@@ -130,9 +130,18 @@
                 </el-button>
                 <el-button
                   link
+                  type="info"
+                  size="small"
+                  :disabled="!isPendingStatus(row)"
+                  @click="handleUrge(row)"
+                >
+                  催办
+                </el-button>
+                <el-button
+                  link
                   type="warning"
                   size="small"
-                  :disabled="row.status !== '审批中' && row.status !== 'PENDING' && row.statusDesc !== '待审批'"
+                  :disabled="!isPendingStatus(row)"
                   @click="handleWithdraw(row)"
                 >
                   撤回
@@ -201,6 +210,33 @@
         <el-button type="primary" @click="handleSubmitApproval">提交审批</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="transferDialogVisible" title="转审" width="480px" @closed="resetTransferForm">
+      <el-form label-width="100px">
+        <el-form-item label="转给" required>
+          <el-select
+            v-model="transferForm.newApproverId"
+            filterable
+            placeholder="选择新审批人"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="u in approverOptions"
+              :key="u.id"
+              :label="u.realName || u.username"
+              :value="u.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="转审原因" required>
+          <el-input v-model="transferForm.comments" type="textarea" :rows="3" placeholder="请输入转审原因" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="transferDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="transferSubmitting" @click="submitTransfer">确定转审</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -218,9 +254,11 @@ import {
   rejectApproval,
   transferApproval,
   withdrawApproval,
+  urgeApproval,
   getApprovalTypes
 } from '@/api/approval'
 import { getCaseList } from '@/api/case'
+import { getUserList } from '@/api/user'
 
 const router = useRouter()
 const route = useRoute()
@@ -231,6 +269,15 @@ const loading = ref(false)
 const pendingList = ref([])
 const processedList = ref([])
 const myRequestList = ref([])
+
+const transferDialogVisible = ref(false)
+const transferSubmitting = ref(false)
+const transferTarget = ref(null)
+const transferForm = ref({ newApproverId: null, comments: '' })
+const approverOptions = ref([])
+
+const isPendingStatus = (row) =>
+  row.status === '审批中' || row.status === 'PENDING' || row.statusDesc === '待审批'
 
 // 审批对话框
 const approvalDialogVisible = ref(false)
@@ -465,33 +512,73 @@ const handleReject = async (row) => {
   }
 }
 
-const handleTransfer = async (row) => {
+const loadApproverOptions = async () => {
   try {
-    const { value } = await ElMessageBox.prompt(
-      '请输入转审原因（必填）',
-      `转审：${row.title}`,
-      {
-        confirmButtonText: '确定转审',
-        cancelButtonText: '取消',
-        inputPlaceholder: '请输入转审原因',
-        inputPattern: /.+/,
-        inputErrorMessage: '转审原因不能为空',
-        type: 'info'
-      }
-    )
+    const res = await getUserList({ page: 1, size: 200 })
+    const raw = res.data
+    const list = raw?.records || raw?.content || raw?.list || (Array.isArray(raw) ? raw : [])
+    approverOptions.value = Array.isArray(list) ? list : []
+  } catch {
+    approverOptions.value = []
+  }
+}
 
-    const response = await transferApproval(row.id, { comments: value })
+const resetTransferForm = () => {
+  transferForm.value = { newApproverId: null, comments: '' }
+  transferTarget.value = null
+}
+
+const handleTransfer = async (row) => {
+  transferTarget.value = row
+  await loadApproverOptions()
+  transferDialogVisible.value = true
+}
+
+const submitTransfer = async () => {
+  if (!transferForm.value.newApproverId) {
+    ElMessage.warning('请选择新审批人')
+    return
+  }
+  if (!transferForm.value.comments?.trim()) {
+    ElMessage.warning('请输入转审原因')
+    return
+  }
+  transferSubmitting.value = true
+  try {
+    const response = await transferApproval(transferTarget.value.id, {
+      newApproverId: transferForm.value.newApproverId,
+      comments: transferForm.value.comments.trim()
+    })
     if (response.success) {
       ElMessage.success('审批已转审')
-      // 刷新列表
+      transferDialogVisible.value = false
       fetchApprovalList()
     } else {
       ElMessage.error(response.message || '操作失败')
     }
   } catch (error) {
+    console.error('转审审批失败:', error)
+    ElMessage.error(error.message || '操作失败')
+  } finally {
+    transferSubmitting.value = false
+  }
+}
+
+const handleUrge = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定催办「${row.title}」？系统将通知当前审批人。`, '催办', {
+      type: 'warning',
+      confirmButtonText: '催办'
+    })
+    const response = await urgeApproval(row.id)
+    if (response.success) {
+      ElMessage.success('已发送催办')
+    } else {
+      ElMessage.error(response.message || '催办失败')
+    }
+  } catch (error) {
     if (error !== 'cancel') {
-      console.error('转审审批失败:', error)
-      ElMessage.error('操作失败')
+      ElMessage.error(error.message || '催办失败')
     }
   }
 }
