@@ -401,6 +401,28 @@
         <el-button type="primary" @click="handleSubmitTodo">确定</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="eventDetailVisible" title="日程详情" size="420px" destroy-on-close>
+      <template v-if="selectedEventDetail">
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="标题">{{ selectedEventDetail.title }}</el-descriptions-item>
+          <el-descriptions-item label="类型">
+            {{ calendarTypeLabel(selectedEventDetail.calendarType || selectedEventDetail.type) }}
+          </el-descriptions-item>
+          <el-descriptions-item label="开始">{{ selectedEventDetail.startTime }}</el-descriptions-item>
+          <el-descriptions-item label="结束">{{ selectedEventDetail.endTime || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="地点">{{ selectedEventDetail.location || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="关联案件">{{ selectedEventDetail.caseName || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="重复">
+            {{ repeatRuleLabel(selectedEventDetail.repeatRule || selectedEventDetail.repeat) }}
+          </el-descriptions-item>
+        </el-descriptions>
+        <div class="drawer-actions">
+          <el-button type="primary" @click="handleEditFromDetail">编辑</el-button>
+          <el-button type="danger" plain @click="handleDeleteFromDetail">删除</el-button>
+        </div>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
@@ -414,6 +436,32 @@ import PageHeader from '@/components/PageHeader.vue'
 import PriorityDot from '@/components/PriorityDot.vue'
 import { getCalendarEvents, createEvent, updateEvent, deleteEvent } from '@/api/calendar'
 import { getTodos, createTodo, updateTodo, deleteTodo } from '@/api/todo'
+import { toCalendarPayload, calendarToForm, normalizeCalendarEvent } from '@/api/calendarPayload'
+
+const CALENDAR_TYPE_LABELS = {
+  HEARING: '开庭/听证',
+  hearing: '开庭/听证',
+  DEADLINE: '审限届满',
+  deadline: '审限届满',
+  FILING: '立案',
+  filing: '立案',
+  MEDIATION: '调解/和解',
+  mediation: '调解/和解',
+  EVIDENCE: '举证截止',
+  evidence: '举证截止',
+  OTHER: '其他',
+  other: '其他'
+}
+
+const REPEAT_LABELS = {
+  daily: '每天',
+  weekly: '每周',
+  monthly: '每月',
+  yearly: '每年'
+}
+
+const calendarTypeLabel = (t) => CALENDAR_TYPE_LABELS[t] || t || '-'
+const repeatRuleLabel = (r) => (r ? REPEAT_LABELS[r] || r : '不重复')
 
 // 视图模式
 const viewMode = ref('month')
@@ -428,6 +476,8 @@ const todoFilter = ref('all')
 
 // 对话框
 const eventDialogVisible = ref(false)
+const eventDetailVisible = ref(false)
+const selectedEventDetail = ref(null)
 const todoDialogVisible = ref(false)
 const isEditEvent = ref(false)
 const isEditTodo = ref(false)
@@ -560,7 +610,10 @@ const isOverdue = (deadline) => {
 
 // 获取指定日期的事件
 const getEventsForDate = (date) => {
-  return eventList.value.filter(event => event.startTime.startsWith(date))
+  return eventList.value.filter((event) => {
+    const s = (event.startTime || '').replace('T', ' ')
+    return s.startsWith(date)
+  })
 }
 
 // 获取指定小时的事件
@@ -675,7 +728,29 @@ const handleDayClick = (date) => {
 
 // 点击事件
 const handleEventClick = (event) => {
-  ElMessage.info('查看事件详情')
+  selectedEventDetail.value = event
+  eventDetailVisible.value = true
+}
+
+const handleEditFromDetail = () => {
+  if (!selectedEventDetail.value) return
+  isEditEvent.value = true
+  Object.assign(eventForm, calendarToForm(selectedEventDetail.value))
+  eventDetailVisible.value = false
+  eventDialogVisible.value = true
+}
+
+const handleDeleteFromDetail = async () => {
+  if (!selectedEventDetail.value?.id) return
+  try {
+    await ElMessageBox.confirm('确定删除该日程吗？', '提示', { type: 'warning' })
+    await deleteEvent(selectedEventDetail.value.id)
+    ElMessage.success('已删除')
+    eventDetailVisible.value = false
+    await fetchEvents()
+  } catch (e) {
+    if (e !== 'cancel') ElMessage.error('删除失败')
+  }
 }
 
 // 新建日程
@@ -758,11 +833,12 @@ const handleSubmitEvent = async () => {
   try {
     await eventFormRef.value?.validate()
 
+    const payload = toCalendarPayload(eventForm)
     if (isEditEvent.value) {
-      await updateEvent(eventForm.id, eventForm)
+      await updateEvent(eventForm.id, payload)
       ElMessage.success('更新成功')
     } else {
-      await createEvent(eventForm)
+      await createEvent(payload)
       ElMessage.success('创建成功')
     }
 
@@ -826,7 +902,8 @@ const fetchEvents = async () => {
       startDate,
       endDate
     })
-    eventList.value = res.data?.records || res.data || []
+    const raw = res.data?.records || res.data || []
+    eventList.value = raw.map(normalizeCalendarEvent)
   } catch (error) {
     console.error('获取日程事件失败:', error)
     ElMessage.error('获取日程事件失败')
@@ -1293,6 +1370,12 @@ fetchTodos()
       padding: 40px 20px;
       text-align: center;
     }
+  }
+
+  .drawer-actions {
+    margin-top: 20px;
+    display: flex;
+    gap: 10px;
   }
 }
 </style>

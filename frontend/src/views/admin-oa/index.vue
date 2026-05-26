@@ -106,7 +106,7 @@
           <el-row :gutter="20" class="overview-cards">
             <el-col :span="6">
               <div class="stat-card">
-                <div class="icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%)">
+                <div class="icon icon-lawos-primary">
                   <el-icon><Bell /></el-icon>
                 </div>
                 <div class="content">
@@ -117,7 +117,7 @@
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="icon" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%)">
+                <div class="icon icon-lawos-accent">
                   <el-icon><Location /></el-icon>
                 </div>
                 <div class="content">
@@ -128,7 +128,7 @@
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)">
+                <div class="icon icon-lawos-info">
                   <el-icon><Box /></el-icon>
                 </div>
                 <div class="content">
@@ -139,7 +139,7 @@
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="icon" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)">
+                <div class="icon icon-lawos-success">
                   <el-icon><Monitor /></el-icon>
                 </div>
                 <div class="content">
@@ -335,6 +335,38 @@
         <el-button type="primary" @click="handleSubmitMeeting">预定</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="announcementDetailVisible" title="公告详情" width="640px">
+      <el-descriptions v-if="announcementDetail" :column="2" border>
+        <el-descriptions-item label="标题" :span="2">{{ announcementDetail.title }}</el-descriptions-item>
+        <el-descriptions-item label="发布人">{{ announcementDetail.publisherName || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="发布时间">{{ announcementDetail.publishDate || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="范围">{{ getTargetScopeLabel(announcementDetail.targetScope) }}</el-descriptions-item>
+        <el-descriptions-item label="优先级">
+          <el-tag :type="announcementDetail.priority > 0 ? 'danger' : 'info'">
+            {{ announcementDetail.priority > 0 ? '重要' : '普通' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="内容" :span="2">
+          <div class="detail-content">{{ announcementDetail.content }}</div>
+        </el-descriptions-item>
+      </el-descriptions>
+    </el-dialog>
+
+    <el-drawer v-model="meetingDetailVisible" title="会议预定详情" size="420px">
+      <el-descriptions v-if="meetingDetail" :column="1" border>
+        <el-descriptions-item label="会议室">{{ meetingDetail.roomName || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="日期">{{ meetingDetail.bookingDate }}</el-descriptions-item>
+        <el-descriptions-item label="时间">
+          {{ meetingDetail.startTime }} — {{ meetingDetail.endTime }}
+        </el-descriptions-item>
+        <el-descriptions-item label="主题">{{ meetingDetail.meetingTitle }}</el-descriptions-item>
+        <el-descriptions-item label="预定人">{{ meetingDetail.bookerName || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="状态">{{ meetingDetail.status }}</el-descriptions-item>
+        <el-descriptions-item label="参会人">{{ meetingDetail.attendees || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="备注">{{ meetingDetail.remark || '-' }}</el-descriptions-item>
+      </el-descriptions>
+    </el-drawer>
   </div>
 </template>
 
@@ -346,12 +378,16 @@ import PageHeader from '@/components/PageHeader.vue'
 import AttendancePanel from '@/components/admin/AttendancePanel.vue'
 import {
   getAnnouncements,
-  createAnnouncement
+  createAnnouncement,
+  deleteAnnouncement,
+  getAnnouncementDetail
 } from '@/api/announcement'
 import {
   getMeetingRooms,
   getMeetingBookings,
-  createMeetingBooking
+  createMeetingBooking,
+  cancelMeetingBooking,
+  getMeetingBookingDetail
 } from '@/api/meetingRoom'
 
 const activeTab = ref('overview')
@@ -389,6 +425,11 @@ const meetingForm = ref({
   attendees: '',
   remark: ''
 })
+
+const announcementDetailVisible = ref(false)
+const announcementDetail = ref(null)
+const meetingDetailVisible = ref(false)
+const meetingDetail = ref(null)
 
 // 获取目标范围标签
 const getTargetScopeLabel = (scope) => {
@@ -465,9 +506,15 @@ const handleAddAnnouncement = () => {
 }
 
 // 查看公告
-const handleViewAnnouncement = (row) => {
-  ElMessage.info(`查看公告：${row.title}`)
-  // TODO: 显示公告详情对话框
+const handleViewAnnouncement = async (row) => {
+  try {
+    const res = await getAnnouncementDetail(row.id)
+    announcementDetail.value = res.data || row
+    announcementDetailVisible.value = true
+  } catch {
+    announcementDetail.value = row
+    announcementDetailVisible.value = true
+  }
 }
 
 // 编辑公告
@@ -484,7 +531,7 @@ const handleDeleteAnnouncement = async (row) => {
       confirmButtonText: '确定',
       cancelButtonText: '取消'
     })
-    // TODO: 调用删除API
+    await deleteAnnouncement(row.id)
     ElMessage.success('删除成功')
     loadAnnouncements()
   } catch (error) {
@@ -495,9 +542,14 @@ const handleDeleteAnnouncement = async (row) => {
 }
 
 // 查看会议预定
-const handleViewMeeting = (row) => {
-  ElMessage.info(`查看会议预定：${row.meetingTitle}`)
-  // TODO: 显示会议详情对话框
+const handleViewMeeting = async (row) => {
+  try {
+    const res = await getMeetingBookingDetail(row.id)
+    meetingDetail.value = res.data || row
+  } catch {
+    meetingDetail.value = row
+  }
+  meetingDetailVisible.value = true
 }
 
 // 取消会议预定
@@ -508,7 +560,7 @@ const handleCancelBooking = async (row) => {
       confirmButtonText: '确定',
       cancelButtonText: '取消'
     })
-    // TODO: 调用取消API
+    await cancelMeetingBooking(row.id)
     ElMessage.success('取消成功')
     loadMeetingBookings()
   } catch (error) {
@@ -865,6 +917,31 @@ const tableRowClassName = ({ rowIndex }) => {
         }
       }
     }
+  }
+
+  .icon-lawos-primary {
+    background: linear-gradient(135deg, #eef3fc 0%, #dce8f8 100%) !important;
+    color: var(--lawos-primary, #3b6fd9);
+  }
+
+  .icon-lawos-accent {
+    background: linear-gradient(135deg, #e8f0fe 0%, #d4e4fc 100%) !important;
+    color: var(--lawos-accent, #5b8def);
+  }
+
+  .icon-lawos-info {
+    background: linear-gradient(135deg, #f0f5ff 0%, #e6eef8 100%) !important;
+    color: #4a6fa5;
+  }
+
+  .icon-lawos-success {
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%) !important;
+    color: #30a46c;
+  }
+
+  .detail-content {
+    white-space: pre-wrap;
+    line-height: 1.6;
   }
 }
 </style>

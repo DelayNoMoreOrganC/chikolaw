@@ -1,10 +1,11 @@
 # 律所管理系统 - 当前状态
 
 **更新时间**：2026-05-26  
-**版本**：v2.2.0  
-**状态**：🟡 功能完备，待生产验收
+**版本**：v2.2.0（PRD 文档 v2.1）  
+**状态**：🟡 功能完备，待生产验收  
+**性能/并发**：见 [docs/ARCHITECTURE_LAN_50_USERS.md](docs/ARCHITECTURE_LAN_50_USERS.md)（约 50 人局域网）
 
-> 需求基准：[PRD.md](PRD.md) v2.0（附录 A 实现状态矩阵）  
+> 需求基准：[PRD.md](PRD.md) v2.1（macOS 蓝灰视觉 + Alpha/案件云对标；附录 A/B）  
 > 卷宗录入验收：[docs/INTAKE_FLOW_E2E_CHECKLIST.md](docs/INTAKE_FLOW_E2E_CHECKLIST.md)  
 > 行政合规映射：[docs/ADMIN_CASE_CLIENT_REQUIREMENTS.md](docs/ADMIN_CASE_CLIENT_REQUIREMENTS.md)
 
@@ -47,6 +48,28 @@
 - 前端：`frontend/src/config/ai-terminology.js`；后端：`DocumentTypeAliasResolver`
 - 类型列表 API：`GET /api/ai/documents/types`（含 `route`: DOCUMENT / LEGACY_DOCUMENT）
 
+### 文档中心（跨案件聚合）
+- `GET /api/documents?page&size&caseId&documentType&keyword` — 服务端分页 + 统计（总数/涉及案件/总大小）
+- 前端：预览/下载/删除（复用 `DocumentPreviewDialog` + `useDocumentPreview`）；兼容 `GET /api/documents/all`
+
+### AI 识别 → 建案预填
+- AI 中心识别结果「创建案件」→ `sessionStorage` 预填 → `/case/create` 自动带入案由/法院/案号/当事人
+
+### 预览组件复用
+- 案件文档 Tab（`doc.vue`）接入 `DocumentPreviewDialog` + `useDocumentPreview`（与文档中心一致）
+- AI 文书生成：支持已生成全文预览 / 关键信息草稿预览对话框
+
+### 批量与导出
+- 案件文档：批量下载 / 删除 / 移动分类 / 添加标签；左侧树点击按类型过滤；修复 `loadDocuments` 未定义
+- `AIDocGenerator`：复制与下载文书（`.txt`）
+- 公文流转：详情弹窗「导出正文」
+
+### UI v2.1（macOS 蓝灰 · 2026-05-26）
+- `theme-lawos.scss` 全局 Token + Element 主色 `#3B6FD9`
+- 工作台欢迎条、登录/AI/行政/客户页去除紫渐变
+- 日程：`repeat`↔`repeatRule` 提交映射、详情抽屉、编辑/删除
+- 行政 OA：公告详情/删除、会议详情/取消预定
+
 ### AI 能力
 - 7 场景模型路由 + `GET /api/ai/diagnostics`
 - `GET /api/cases/{id}/ai-analysis` LLM 案件分析
@@ -61,11 +84,11 @@
 
 | 优先级 | 项 |
 |--------|-----|
-| P1 | 立案审批通过后自动草稿案件（`PENDING_FILING`）+ 完善引导 |
 | P2 | 审批转审/催办 | 转审选人对话框 + 催办按钮已接入 |
-| P2 | Office 文档在线预览 | **已实现**（局域网服务端 POI 转 HTML，`/preview-html`） |
-| — | **消息通知中心** | 顶栏铃铛 + 抽屉分类（待办/案件/审批）+ 审批待办/结果/催办推送 |
-| P3 | AI 文书术语与 UI 别名统一 | **已实现**（`ai-terminology.js` + `DocumentTypeAliasResolver`） |
+| P2 | 文档中心分页检索 | **已实现** |
+| P2 | AI 识别一键建案预填 | **已实现** |
+| P2 | macOS 蓝灰视觉 Token 全站收敛 | **部分**（Token 已接入；部分子页待扫） |
+| — | AI 文书 `.docx`、分片上传、WebSocket 通知、SSB 省时宝 | 未实现/占位 |
 
 ---
 
