@@ -318,6 +318,15 @@ export function previewCaseDocument(caseId, docId) {
   })
 }
 
+// Office 文档预览（服务端转 HTML，局域网可用）
+export function previewCaseDocumentHtml(caseId, docId) {
+  return request({
+    url: `/cases/${caseId}/documents/${docId}/preview-html`,
+    method: 'get',
+    responseType: 'text'
+  })
+}
+
 // ==================== 案件程序管理 ====================
 
 // 获取案件程序列表

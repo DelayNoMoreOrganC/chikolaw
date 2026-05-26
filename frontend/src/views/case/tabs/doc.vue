@@ -317,6 +317,13 @@
           class="preview-pdf-frame"
           title="PDF 预览"
         />
+        <iframe
+          v-else-if="previewMode === 'html' && previewHtmlContent"
+          :srcdoc="previewHtmlContent"
+          class="preview-html-frame"
+          sandbox=""
+          title="Office 预览"
+        />
       </div>
     </el-dialog>
   </div>
@@ -339,6 +346,7 @@ import {
   deleteCaseDocument,
   moveCaseDocument,
   previewCaseDocument,
+  previewCaseDocumentHtml,
   downloadCaseDocument
 } from '@/api/case'
 import {
@@ -374,8 +382,11 @@ const aiDocForm = ref({
 const previewDialogVisible = ref(false)
 const previewFile = ref(null)
 const previewBlobUrl = ref('')
+const previewHtmlContent = ref('')
 const previewMode = ref('')
 const previewLoading = ref(false)
+
+const OFFICE_PREVIEW_EXTS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']
 
 // 文档列表（从API获取）
 const documents = ref([])
@@ -938,6 +949,21 @@ const revokePreviewBlob = () => {
   }
   previewMode.value = ''
   previewFile.value = null
+  previewHtmlContent.value = ''
+}
+
+const loadPreviewHtml = async (file) => {
+  revokePreviewBlob()
+  previewLoading.value = true
+  try {
+    const html = await previewCaseDocumentHtml(props.caseData.id, file.id)
+    previewHtmlContent.value = typeof html === 'string' ? html : (html?.data || '')
+    if (!previewHtmlContent.value) {
+      throw new Error('预览内容为空')
+    }
+  } finally {
+    previewLoading.value = false
+  }
 }
 
 const loadPreviewBlob = async (file, mimeHint) => {
@@ -969,6 +995,16 @@ const handlePreviewFile = async (file) => {
     previewMode.value = 'pdf'
     previewDialogVisible.value = true
     await loadPreviewBlob(file, 'application/pdf')
+  } else if (OFFICE_PREVIEW_EXTS.includes(ext)) {
+    previewFile.value = file
+    previewMode.value = 'html'
+    previewDialogVisible.value = true
+    try {
+      await loadPreviewHtml(file)
+    } catch (e) {
+      previewDialogVisible.value = false
+      ElMessage.error('Office 预览失败：' + (e.message || '请下载后查看'))
+    }
   } else {
     // 其他文件 - 提示下载
     ElMessageBox.confirm(
@@ -1292,6 +1328,7 @@ const handleSaveDoc = () => {
     min-height: 400px;
   }
 
+  .preview-html-frame,
   .preview-pdf-frame {
     width: 100%;
     height: 70vh;

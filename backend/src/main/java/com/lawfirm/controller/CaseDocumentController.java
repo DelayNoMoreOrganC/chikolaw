@@ -3,6 +3,7 @@ package com.lawfirm.controller;
 import com.lawfirm.annotation.AuditLog;
 import com.lawfirm.dto.CaseDocumentDTO;
 import com.lawfirm.service.CaseDocumentService;
+import com.lawfirm.service.OfficeDocumentPreviewService;
 import com.lawfirm.security.SecurityUtils;
 import com.lawfirm.util.Result;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,7 @@ import java.util.List;
 public class CaseDocumentController {
 
     private final CaseDocumentService caseDocumentService;
+    private final OfficeDocumentPreviewService officeDocumentPreviewService;
     private final SecurityUtils securityUtils;
 
     /**
@@ -201,6 +203,48 @@ public class CaseDocumentController {
             @PathVariable Long id,
             HttpServletResponse response) throws IOException {
         streamDocument(caseId, id, true, response);
+    }
+
+    /**
+     * Office 文档局域网预览（服务端转 HTML，适用于 doc/docx/xls/xlsx/ppt/pptx）
+     */
+    @GetMapping(value = "/{id}/preview-html", produces = MediaType.TEXT_HTML_VALUE + ";charset=UTF-8")
+    @PreAuthorize("isAuthenticated()")
+    public void previewOfficeHtml(
+            @PathVariable Long caseId,
+            @PathVariable Long id,
+            HttpServletResponse response) throws IOException {
+        try {
+            CaseDocumentDTO document = caseDocumentService.getDocumentById(id);
+            if (!caseId.equals(document.getCaseId())) {
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                return;
+            }
+            if (!officeDocumentPreviewService.supports(document.getDocumentName())) {
+                response.setStatus(HttpServletResponse.SC_UNSUPPORTED_MEDIA_TYPE);
+                response.setContentType(MediaType.TEXT_PLAIN_VALUE + ";charset=UTF-8");
+                response.getWriter().write("该文件类型不支持 Office 预览");
+                return;
+            }
+            long size = document.getFileSize() != null ? document.getFileSize() : 0L;
+            String html;
+            try (java.io.InputStream in = caseDocumentService.openDocumentStream(id)) {
+                html = officeDocumentPreviewService.convertToHtml(in, document.getDocumentName(), size);
+            }
+            response.setContentType(MediaType.TEXT_HTML_VALUE + ";charset=UTF-8");
+            response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+            response.getWriter().write(html);
+            response.flushBuffer();
+        } catch (IllegalArgumentException e) {
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+            response.setContentType(MediaType.TEXT_PLAIN_VALUE + ";charset=UTF-8");
+            response.getWriter().write(e.getMessage());
+        } catch (Exception e) {
+            log.error("Office 预览失败: caseId={}, docId={}", caseId, id, e);
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            response.setContentType(MediaType.TEXT_PLAIN_VALUE + ";charset=UTF-8");
+            response.getWriter().write("预览失败: " + e.getMessage());
+        }
     }
 
     private void streamDocument(Long caseId, Long id, boolean inline, HttpServletResponse response)

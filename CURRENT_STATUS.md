@@ -25,6 +25,10 @@
 
 ## 近期交付（Sprint 0~2）
 
+### 案件文档预览（局域网）
+- PDF/图片：`GET .../preview`（鉴权 blob）
+- Office（doc/docx/xls/xlsx/ppt/pptx）：`GET .../preview-html`（Apache POI 转 HTML，无需外网 Office Online）
+
 ### 卷宗智能录入
 - 工作台 `CaseFileIntakePanel` → `POST /api/case-intake/process`
 - 未匹配：`NEEDS_CASE` + `pendingId`；挂接 `attach-pending`；立案 `CASE_FILING` 审批通过 → **自动待立案草稿** + 卷宗挂接 → 引导完善
@@ -54,7 +58,7 @@
 |--------|-----|
 | P1 | 立案审批通过后自动草稿案件（`PENDING_FILING`）+ 完善引导 |
 | P2 | 审批转审/催办 | 转审选人对话框 + 催办按钮已接入 |
-| P2 | Office 文档在线预览 |
+| P2 | Office 文档在线预览 | **已实现**（局域网服务端 POI 转 HTML，`/preview-html`） |
 | — | **消息通知中心** | 顶栏铃铛 + 抽屉分类（待办/案件/审批）+ 审批待办/结果/催办推送 |
 | P3 | AI 文书术语与 UI 别名统一 |
 

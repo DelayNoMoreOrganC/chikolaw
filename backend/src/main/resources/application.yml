@@ -1,3 +1,8 @@
+# 文档预览（局域网 Office 转 HTML，不依赖外网）
+document:
+  preview:
+    max-bytes: 15728640  # 15MB
+
 server:
   port: 8080
   servlet:

@@ -28,6 +28,7 @@
 |---|------|------|
 | 3.1 | 同案件同名文件上传两次 | 列表显示 `v1`、`v2`（`versionNo` 递增） |
 | 3.2 | 预览 PDF / 图片 | 对话框内 iframe / 图片（带鉴权 blob） |
+| 3.2b | 预览 doc/docx/xls/xlsx/ppt/pptx | 服务端转 HTML（`GET .../preview-html`），无需外网 |
 | 3.3 | 下载 | `download` 接口正常 |
 
 ## 4. Agent 运行时（可选）
