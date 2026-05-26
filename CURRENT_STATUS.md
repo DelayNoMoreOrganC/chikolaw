@@ -42,6 +42,11 @@
 - `POST /api/clients/import` Excel 批量导入（导入前逐行利冲）
 - 非管理员不可改客户名称、不可改案源人/负责人
 
+### AI 术语与文书类型
+- 用户界面统一为「文书智能识别」（非 OCR 品牌名）；canonical 类型：起诉状/答辩状/代理词/法律意见书/律师函
+- 前端：`frontend/src/config/ai-terminology.js`；后端：`DocumentTypeAliasResolver`
+- 类型列表 API：`GET /api/ai/documents/types`（含 `route`: DOCUMENT / LEGACY_DOCUMENT）
+
 ### AI 能力
 - 7 场景模型路由 + `GET /api/ai/diagnostics`
 - `GET /api/cases/{id}/ai-analysis` LLM 案件分析
@@ -60,7 +65,7 @@
 | P2 | 审批转审/催办 | 转审选人对话框 + 催办按钮已接入 |
 | P2 | Office 文档在线预览 | **已实现**（局域网服务端 POI 转 HTML，`/preview-html`） |
 | — | **消息通知中心** | 顶栏铃铛 + 抽屉分类（待办/案件/审批）+ 审批待办/结果/催办推送 |
-| P3 | AI 文书术语与 UI 别名统一 |
+| P3 | AI 文书术语与 UI 别名统一 | **已实现**（`ai-terminology.js` + `DocumentTypeAliasResolver`） |
 
 ---
 

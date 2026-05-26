@@ -22,12 +22,12 @@
 
       <!-- 功能区域 -->
       <div class="feature-section">
-        <!-- OCR文档识别 -->
-        <div v-show="activeFeature === 'ocr'" class="feature-panel">
+        <!-- 文书智能识别 -->
+        <div v-show="activeFeature === 'recognition'" class="feature-panel">
           <el-card>
             <template #header>
               <div class="panel-header">
-                <span>📄 OCR文档智能识别</span>
+                <span>📄 {{ AI_RECOGNITION.featureName }}</span>
                 <el-tag type="success">支持PDF/图片</el-tag>
               </div>
             </template>
@@ -70,8 +70,8 @@
                 </el-descriptions>
 
                 <div class="result-actions">
-                  <el-button type="primary" @click="createCaseFromOCR">创建案件</el-button>
-                  <el-button @click="clearOCRResult">重新识别</el-button>
+                  <el-button type="primary" @click="createCaseFromRecognition">创建案件</el-button>
+                  <el-button @click="clearRecognitionResult">重新识别</el-button>
                 </div>
               </div>
 
@@ -89,7 +89,7 @@
           <el-card>
             <template #header>
               <div class="panel-header">
-                <span>📝 AI文书生成</span>
+                <span>📝 {{ AI_DOCUMENT_GEN.featureName }}</span>
                 <el-tag type="warning">智能模板</el-tag>
               </div>
             </template>
@@ -98,10 +98,12 @@
               <el-form :model="docForm" label-width="120px">
                 <el-form-item label="文书类型">
                   <el-select v-model="docForm.templateType" placeholder="选择文书模板">
-                    <el-option label="起诉状" value="complaint" />
-                    <el-option label="答辩状" value="defense" />
-                    <el-option label="代理词" value="opinion" />
-                    <el-option label="律师函" value="letter" />
+                    <el-option
+                      v-for="opt in documentTypeOptions"
+                      :key="opt.value"
+                      :label="opt.label"
+                      :value="opt.value"
+                    />
                   </el-select>
                 </el-form-item>
 
@@ -232,7 +234,7 @@
                     <div class="stat-icon">📄</div>
                     <div class="stat-info">
                       <div class="stat-value">{{ stats.totalDocs }}</div>
-                      <div class="stat-label">OCR识别</div>
+                      <div class="stat-label">文书识别</div>
                     </div>
                   </div>
                 </el-col>
@@ -270,7 +272,9 @@
                 <el-table-column prop="date" label="日期" width="120" />
                 <el-table-column prop="functionType" label="功能类型" width="120">
                   <template #default="{ row }">
-                    <el-tag v-if="row.functionType === 'OCR'" type="success">OCR识别</el-tag>
+                    <el-tag v-if="row.functionType === 'OCR' || row.functionType === 'DOCUMENT_RECOGNITION'" type="success">
+                      {{ formatAiFunctionType(row.functionType) }}
+                    </el-tag>
                     <el-tag v-else-if="row.functionType === 'DOC_GEN'" type="warning">文书生成</el-tag>
                     <el-tag v-else-if="row.functionType === 'QA'" type="info">AI问答</el-tag>
                     <el-tag v-else type="">{{ row.functionType }}</el-tag>
@@ -309,22 +313,30 @@ import {
 import PageHeader from '@/components/PageHeader.vue'
 import * as aiApi from '@/api/ai'
 import { useUserStore } from '@/stores'
+import {
+  AI_RECOGNITION,
+  AI_DOCUMENT_GEN,
+  getDocumentTypeOptions,
+  formatAiFunctionType
+} from '@/config/ai-terminology'
 
 const userStore = useUserStore()
 const userName = computed(() => userStore.userInfo?.realName || '用户')
 
 // AI功能列表
+const documentTypeOptions = getDocumentTypeOptions(true)
+
 const aiFeatures = ref([
   {
-    id: 'ocr',
-    name: 'OCR文档识别',
-    description: '智能识别法院文书、合同等法律文档',
+    id: 'recognition',
+    name: AI_RECOGNITION.featureName,
+    description: 'Vision 识别 + LLM 要素提取（局域网，无需外网 OCR 服务）',
     icon: '📄',
     beta: false
   },
   {
     id: 'docGen',
-    name: 'AI文书生成',
+    name: AI_DOCUMENT_GEN.featureName,
     description: '根据案件信息自动生成各类法律文书',
     icon: '📝',
     beta: false
@@ -346,9 +358,9 @@ const aiFeatures = ref([
 ])
 
 // 当前激活的功能
-const activeFeature = ref('ocr')
+const activeFeature = ref('recognition')
 
-// OCR相关
+// 文书识别相关
 const isDragOver = ref(false)
 const isUploading = ref(false)
 const uploadProgress = ref(0)
@@ -388,7 +400,7 @@ const selectFeature = (featureId) => {
   }
 }
 
-// OCR相关方法
+// 文书识别相关方法
 const handleDrop = (e) => {
   isDragOver.value = false
   const files = e.dataTransfer.files
@@ -437,31 +449,29 @@ const processFile = async (file) => {
     uploadStatus.value = 'success'
     uploadStatusText.value = '识别完成！'
 
-    if (response.success) {
+    if (response.code === 200 || response.success) {
       ocrResult.value = response.data
       ElNotification.success({
-        title: '识别成功',
+        title: AI_RECOGNITION.successTitle,
         message: '文档识别完成，请查看结果'
       })
     } else {
-      throw new Error(response.message || '识别失败')
+      throw new Error(response.message || AI_RECOGNITION.failMessage)
     }
   } catch (error) {
     uploadStatus.value = 'exception'
     uploadStatusText.value = '识别失败：' + error.message
-    ElMessage.error('OCR识别失败：' + error.message)
+    ElMessage.error(`${AI_RECOGNITION.failMessage}：` + error.message)
   } finally {
     isUploading.value = false
   }
 }
 
-const createCaseFromOCR = () => {
-  // 跳转到案件创建页面并预填充数据
+const createCaseFromRecognition = () => {
   ElMessage.info('即将跳转到案件创建页面...')
-  // TODO: 实现跳转逻辑
 }
 
-const clearOCRResult = () => {
+const clearRecognitionResult = () => {
   ocrResult.value = null
   uploadProgress.value = 0
   uploadStatus.value = ''

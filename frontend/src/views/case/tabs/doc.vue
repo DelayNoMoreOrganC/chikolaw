@@ -70,12 +70,12 @@
 
             <el-button @click="handleAIUpload">
               <el-icon><MagicStick /></el-icon>
-              AI智能识别
+              {{ AI_RECOGNITION.shortName }}
             </el-button>
 
             <el-button type="success" @click="handleAIGenerateDoc">
               <el-icon><Edit /></el-icon>
-              AI文书生成
+              {{ AI_DOCUMENT_GEN.actionLabel }}
             </el-button>
           </div>
 
@@ -191,7 +191,7 @@
     </div>
 
     <!-- AI识别对话框 -->
-    <el-dialog v-model="aiDialogVisible" title="AI智能识别" width="600px">
+    <el-dialog v-model="aiDialogVisible" :title="AI_RECOGNITION.dialogTitle" width="600px">
       <el-upload
         class="upload-demo"
         drag
@@ -227,14 +227,16 @@
     </el-dialog>
 
     <!-- AI文书生成对话框 -->
-    <el-dialog v-model="aiDocDialogVisible" title="AI文书生成" width="700px">
+    <el-dialog v-model="aiDocDialogVisible" :title="AI_DOCUMENT_GEN.dialogTitle" width="700px">
       <el-form :model="aiDocForm" label-width="100px">
         <el-form-item label="文书类型">
           <el-select v-model="aiDocForm.documentType" placeholder="请选择文书类型">
-            <el-option label="起诉状" value="COMPLAINT" />
-            <el-option label="答辩状" value="DEFENSE_STATEMENT" />
-            <el-option label="代理词" value="BRIEF" />
-            <el-option label="法律意见书" value="LEGAL_OPINION" />
+            <el-option
+              v-for="opt in documentTypeOptions"
+              :key="opt.value"
+              :label="opt.label"
+              :value="opt.value"
+            />
           </el-select>
         </el-form-item>
 
@@ -340,6 +342,7 @@ watch(() => props.caseData.id, (newId) => {
 }, { immediate: true })
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { generateDoc, recognizeLegalDocument } from '@/api/ai'
+import { AI_RECOGNITION, AI_DOCUMENT_GEN, getDocumentTypeOptions } from '@/config/ai-terminology'
 import {
   getCaseDocuments,
   uploadCaseDocument,
@@ -387,6 +390,7 @@ const previewMode = ref('')
 const previewLoading = ref(false)
 
 const OFFICE_PREVIEW_EXTS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']
+const documentTypeOptions = getDocumentTypeOptions(true)
 
 // 文档列表（从API获取）
 const documents = ref([])
@@ -794,10 +798,10 @@ const handleAIUpload = () => {
 
 const handleAIFileChange = async (file) => {
   try {
-    ElMessage.info('正在识别文档（生产路径 Vision+LLM），请稍候...')
+    ElMessage.info(AI_RECOGNITION.processingHint)
     const res = await recognizeLegalDocument(file.raw, props.caseData?.id)
     if (!(res.code === 200 || res.success) || !res.data) {
-      ElMessage.error(res.message || 'AI识别失败')
+      ElMessage.error(res.message || AI_RECOGNITION.failMessage)
       return
     }
     const data = res.data
@@ -812,10 +816,10 @@ const handleAIFileChange = async (file) => {
         data.caseReason && `案由：${data.caseReason}`
       ].filter(Boolean).join('\n') || '识别成功'
     }
-    ElMessage.success('AI识别成功！')
+    ElMessage.success(`${AI_RECOGNITION.successTitle}！`)
   } catch (error) {
     console.error('AI识别失败:', error)
-    ElMessage.error('AI识别失败，请重试')
+    ElMessage.error(`${AI_RECOGNITION.failMessage}，请重试`)
     aiResult.value = {
       docType: '起诉状',
       suggestedFolder: '起诉状',
@@ -1152,10 +1156,9 @@ const handleGenerateDoc = async () => {
       additionalContext: aiDocForm.value.additionalContext
     })
 
-    // 处理响应
-    if (response instanceof Blob) {
-      // 如果返回的是文件流，直接下载
-      const url = window.URL.createObjectURL(response)
+    const content = response?.data ?? response
+    if (content instanceof Blob) {
+      const url = window.URL.createObjectURL(content)
       const link = document.createElement('a')
       link.href = url
       link.download = `${aiDocForm.value.documentType}_${props.caseData.caseName}.doc`
@@ -1163,11 +1166,12 @@ const handleGenerateDoc = async () => {
       window.URL.revokeObjectURL(url)
       ElMessage.success('文书生成并下载成功')
       aiDocDialogVisible.value = false
-    } else {
-      // 如果返回的是文本，显示在结果对话框中
-      aiGeneratedDoc.value = response
+    } else if (typeof content === 'string' && content) {
+      aiGeneratedDoc.value = content
       aiResultDialogVisible.value = true
       aiDocDialogVisible.value = false
+    } else {
+      throw new Error('未返回文书内容')
     }
   } catch (error) {
     console.error('生成文书失败:', error)

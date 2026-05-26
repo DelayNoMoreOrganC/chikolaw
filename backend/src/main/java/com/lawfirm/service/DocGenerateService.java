@@ -6,6 +6,7 @@ import com.lawfirm.entity.Case;
 import com.lawfirm.enums.AIFunctionType;
 import com.lawfirm.enums.AIModelUseCase;
 import com.lawfirm.repository.CaseRepository;
+import com.lawfirm.util.DocumentTypeAliasResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -41,8 +42,11 @@ public class DocGenerateService {
             Case caseEntity = caseRepository.findById(request.getCaseId())
                     .orElseThrow(() -> new RuntimeException("案件不存在"));
 
+            String documentType = DocumentTypeAliasResolver.normalize(request.getDocumentType());
+            request.setDocumentType(documentType);
+
             // 构建Prompt
-            String prompt = buildDocumentPrompt(caseEntity, request.getDocumentType(),
+            String prompt = buildDocumentPrompt(caseEntity, documentType,
                     request.getCustomPrompt(), request.getAdditionalContext());
 
             String response = llmApiService.chatWithConfig(prompt, null, config);
@@ -181,6 +185,19 @@ public class DocGenerateService {
                 prompt.append("  代理人签名、日期\n\n");
                 break;
 
+            case "LAWYER_LETTER":
+                prompt.append("=== 文书类型：律师函 ===\n\n");
+                prompt.append("【格式要求】\n");
+                prompt.append("一、首部：致送单位/个人全称\n");
+                prompt.append("二、事实陈述：简明说明争议或违约事实\n");
+                prompt.append("三、法律分析：引用相关法律及后果\n");
+                prompt.append("四、律师意见与要求：限期履行/停止侵权等\n");
+                prompt.append("五、尾部：律师事务所名称、律师签名、日期\n\n");
+                if (customPrompt != null && !customPrompt.isEmpty()) {
+                    prompt.append("【用户补充要求】\n").append(customPrompt).append("\n\n");
+                }
+                break;
+
             case "LEGAL_OPINION":
                 prompt.append("=== 文书类型：法律意见书 ===\n\n");
                 prompt.append("【格式要求】\n");
@@ -212,8 +229,9 @@ public class DocGenerateService {
                 break;
 
             default:
-                prompt.append("=== 文书类型：").append(documentType).append(" ===\n\n");
-                prompt.append("请根据上述案件信息，起草一份").append(documentType).append("。\n");
+                String display = DocumentTypeAliasResolver.displayName(documentType);
+                prompt.append("=== 文书类型：").append(display).append(" ===\n\n");
+                prompt.append("请根据上述案件信息，起草一份").append(display).append("。\n");
                 prompt.append("注意：请确保文书格式规范、内容完整、逻辑清晰。\n\n");
                 break;
         }

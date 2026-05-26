@@ -2,7 +2,7 @@
   <div class="ai-document-fill">
     <el-dialog
       v-model="visible"
-      title="AI智能识别填充"
+      title="文书智能识别填充"
       width="600px"
       :close-on-click-modal="false"
     >

@@ -149,7 +149,7 @@
             <el-alert type="success" :closable="false" class="result-alert">
               <template #title>
                 <div class="result-title">
-                  <span>✅ AI识别成功（{{ aiResult.documentType || '未知文书' }}）</span>
+                  <span>✅ {{ AI_RECOGNITION.successTitle }}（{{ aiResult.documentType || '未知文书' }}）</span>
                   <el-button text type="primary" size="small" @click="aiResult = null">关闭</el-button>
                 </div>
               </template>
@@ -351,6 +351,7 @@ import CaseFileIntakePanel from '@/components/CaseFileIntakePanel.vue'
 import { getDashboardStats } from '@/api/dashboard'
 import { getTodoList, deleteTodo, updateTodo } from '@/api/todo'
 import { uploadDocForAIRecognition } from '@/api/ai'
+import { AI_RECOGNITION } from '@/config/ai-terminology'
 import { getCalendarList } from '@/api/calendar'
 import { useUserStore } from '@/stores'
 import AIAssistant from '@/views/ai/assistant.vue'
@@ -465,7 +466,7 @@ const handleCustomUpload = async (options) => {
   aiResult.value = null
 
   try {
-    ElMessage.info('正在上传文档并调用AI识别，请耐心等待...')
+    ElMessage.info(AI_RECOGNITION.processingHint)
     const response = await uploadDocForAIRecognition(file)
     aiProcessing.value = false
 
@@ -492,7 +493,7 @@ const handleCustomUpload = async (options) => {
         }
       }
 
-      ElMessage.success(`AI识别成功！文书类型：${data.documentType || '未知'}\n案号：${data.caseNumber || '无'}\n处理时间：${data.processingTime || 0}ms`)
+      ElMessage.success(`${AI_RECOGNITION.successTitle}！文书类型：${data.documentType || '未知'}\n案号：${data.caseNumber || '无'}\n处理时间：${data.processingTime || 0}ms`)
       // 刷新待办列表
       fetchTodos()
       // 刷新日程列表
@@ -500,7 +501,7 @@ const handleCustomUpload = async (options) => {
       // 刷新统计数据
       fetchStats()
     } else {
-      ElMessage.error(response.message || 'AI识别失败')
+      ElMessage.error(response.message || AI_RECOGNITION.failMessage)
     }
   } catch (error) {
     aiProcessing.value = false
@@ -508,7 +509,7 @@ const handleCustomUpload = async (options) => {
 
     // 更友好的超时错误提示
     if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-      ElMessage.error('AI识别超时（文档可能较大），请稍后在待办事项中查看结果')
+      ElMessage.error(`${AI_RECOGNITION.failMessage}（文档可能较大），请稍后在待办事项中查看结果`)
     } else {
       ElMessage.error('文档上传失败：' + (error.message || '未知错误'))
     }

@@ -9,6 +9,7 @@ import com.lawfirm.entity.Case;
 import com.lawfirm.enums.AIFunctionType;
 import com.lawfirm.exception.AIServiceException;
 import com.lawfirm.repository.CaseRepository;
+import com.lawfirm.util.DocumentTypeAliasResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -38,7 +39,8 @@ public class DocumentGenerationService {
         COMPLAINT("起诉状"),
         DEFENSE_STATEMENT("答辩状"),
         BRIEF("代理词"),
-        LEGAL_OPINION("法律意见书");
+        LEGAL_OPINION("法律意见书"),
+        LAWYER_LETTER("律师函");
 
         private final String description;
 
@@ -67,7 +69,12 @@ public class DocumentGenerationService {
         String prompt = null;
 
         try {
-            AIConfig config = aimodelRoutingService.resolveForUseCase(AIModelUseCase.DOCUMENT);
+            request.setDocumentType(DocumentTypeAliasResolver.normalize(request.getDocumentType()));
+
+            AIConfig config = aimodelRoutingService.resolveForUseCase(
+                    DocumentTypeAliasResolver.isLegacyDocumentType(request.getDocumentType())
+                            ? AIModelUseCase.LEGACY_DOCUMENT
+                            : AIModelUseCase.DOCUMENT);
             modelName = config.getModelName();
 
             // 获取案件信息
@@ -171,6 +178,12 @@ public class DocumentGenerationService {
                 systemPrompt.append("- 风险提示要充分、明确\n");
                 systemPrompt.append("- 结论要清晰，建议要具体\n");
                 systemPrompt.append("- 包含标准免责声明\n");
+                break;
+
+            case "LAWYER_LETTER":
+                systemPrompt.append("【律师函专门要求】\n");
+                systemPrompt.append("- 事实简明、语气庄重\n");
+                systemPrompt.append("- 法律依据明确，履行期限具体\n");
                 break;
 
             default:
@@ -408,7 +421,7 @@ public class DocumentGenerationService {
         try {
             return DocumentType.valueOf(documentType).getDescription();
         } catch (IllegalArgumentException e) {
-            return documentType;
+            return DocumentTypeAliasResolver.displayName(documentType);
         }
     }
 
@@ -424,6 +437,8 @@ public class DocumentGenerationService {
         if (request.getDocumentType() == null || request.getDocumentType().isEmpty()) {
             throw new AIServiceException("文书类型不能为空");
         }
+
+        request.setDocumentType(DocumentTypeAliasResolver.normalize(request.getDocumentType()));
 
         // 根据文书类型检查必填字段
         switch (request.getDocumentType()) {
@@ -450,6 +465,9 @@ public class DocumentGenerationService {
                 if (request.getConsultationQuestions() == null || request.getConsultationQuestions().isEmpty()) {
                     throw new AIServiceException("法律意见书必须明确咨询问题");
                 }
+                break;
+
+            case "LAWYER_LETTER":
                 break;
 
             default:

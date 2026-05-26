@@ -3,6 +3,8 @@ package com.lawfirm.controller;
 import com.lawfirm.dto.DocumentGenerateRequest;
 import com.lawfirm.entity.User;
 import com.lawfirm.service.DocumentGenerationService;
+import com.lawfirm.enums.DocumentTemplateType;
+import com.lawfirm.util.DocumentTypeAliasResolver;
 import com.lawfirm.util.Result;
 import com.lawfirm.util.SecurityUtil;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +37,7 @@ public class DocumentGenerationController {
     @PreAuthorize("hasAnyRole('ADMIN', 'LAWYER')")
     public Result<String> generateDocument(@Valid @RequestBody DocumentGenerateRequest request) {
         try {
+            request.setDocumentType(DocumentTypeAliasResolver.normalize(request.getDocumentType()));
             log.info("收到文书生成请求: 案件ID={}, 文书类型={}",
                     request.getCaseId(), request.getDocumentType());
 
@@ -67,12 +70,13 @@ public class DocumentGenerationController {
     @GetMapping("/types")
     @PreAuthorize("hasAnyRole('ADMIN', 'LAWYER', 'ASSISTANT')")
     public Result<Object> getDocumentTypes() {
-        return Result.success(new Object[]{
-                new DocumentType("COMPLAINT", "起诉状", "民事、行政、刑事自诉案件的起诉文书"),
-                new DocumentType("DEFENSE_STATEMENT", "答辩状", "被告针对起诉状的答辩文书"),
-                new DocumentType("BRIEF", "代理词", "律师在法庭上发表的代理意见"),
-                new DocumentType("LEGAL_OPINION", "法律意见书", "就特定法律问题出具的专业意见")
-        });
+        java.util.List<DocumentType> types = new java.util.ArrayList<>();
+        for (DocumentTemplateType t : DocumentTemplateType.values()) {
+            String route = DocumentTypeAliasResolver.isLegacyDocumentType(t.name())
+                    ? "LEGACY_DOCUMENT" : "DOCUMENT";
+            types.add(new DocumentType(t.name(), t.getDescription(), t.getDescription(), route));
+        }
+        return Result.success(types);
     }
 
     /**
@@ -82,11 +86,13 @@ public class DocumentGenerationController {
         private String code;
         private String name;
         private String description;
+        private String route;
 
-        public DocumentType(String code, String name, String description) {
+        public DocumentType(String code, String name, String description, String route) {
             this.code = code;
             this.name = name;
             this.description = description;
+            this.route = route;
         }
 
         public String getCode() {
@@ -99,6 +105,10 @@ public class DocumentGenerationController {
 
         public String getDescription() {
             return description;
+        }
+
+        public String getRoute() {
+            return route;
         }
     }
 }

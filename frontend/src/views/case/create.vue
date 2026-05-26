@@ -43,7 +43,7 @@
               </el-button>
               <el-button type="primary" size="small" @click="handleAIFill">
                 <el-icon><MagicStick /></el-icon>
-                AI智能填充
+                文书智能识别填充
               </el-button>
             </div>
           </div>

@@ -1,7 +1,14 @@
 import request, { aiHttp } from '@/utils/request'
+import {
+  normalizeDocumentTypeCode,
+  getDocumentTypeLabel,
+  getDocumentTypeOptions
+} from '@/config/ai-terminology'
+
+export { normalizeDocumentTypeCode, getDocumentTypeLabel, getDocumentTypeOptions }
 
 /**
- * AI文档智能识别
+ * 文书智能识别（Vision + LLM 要素提取，非独立 OCR 产品名）
  */
 
 /**
@@ -94,13 +101,28 @@ export function uploadDocForAIRecognition(file) {
   })
 }
 
-// 生成文书
+// 生成文书（兼容旧路径 /ai/generate-doc，documentType 请传 canonical code）
 export function generateDoc(data) {
+  const payload = { ...data }
+  if (payload.documentType) {
+    payload.documentType = normalizeDocumentTypeCode(payload.documentType)
+  }
+  if (payload.templateType) {
+    payload.documentType = normalizeDocumentTypeCode(payload.templateType)
+    delete payload.templateType
+  }
   return request({
     url: '/ai/generate-doc',
     method: 'post',
-    data,
-    responseType: 'blob'
+    data: payload
+  })
+}
+
+/** 支持的文书类型（与后端 /ai/documents/types 对齐） */
+export function getLegalDocumentTypes() {
+  return request({
+    url: '/ai/documents/types',
+    method: 'get'
   })
 }
 

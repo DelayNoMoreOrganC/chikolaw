@@ -250,6 +250,7 @@ import { Loading, DocumentCopy, Download, Refresh } from '@element-plus/icons-vu
 import { generateDoc } from '@/api/ai'
 import { getCaseList } from '@/api/case'
 import { useUserStore } from '@/stores'
+import { LEGAL_DOCUMENT_TYPES } from '@/config/ai-terminology'
 
 const userStore = useUserStore()
 const userName = computed(() => userStore.userName)
@@ -263,33 +264,20 @@ const generatedDoc = ref('')
 
 const caseList = ref([])
 
-// 文书类型配置
-const docTypes = [
-  {
-    type: 'complaint',
-    title: '起诉状',
-    icon: '📄',
-    description: '民事/行政起诉状，包含原告被告信息、诉讼请求、事实理由'
-  },
-  {
-    type: 'defense',
-    title: '答辩状',
-    icon: '📝',
-    description: '针对起诉状的答辩，包含答辩意见和证据清单'
-  },
-  {
-    type: 'legalBrief',
-    title: '代理词',
-    icon: '⚖️',
-    description: '庭审代理词，包含代理意见、争议焦点、法律依据'
-  },
-  {
-    type: 'legalOpinion',
-    title: '法律意见书',
-    icon: '📋',
-    description: '法律专业意见，包含委托事项、基本情况、法律分析'
-  }
-]
+const DOC_TYPE_META = {
+  COMPLAINT: { icon: '📄', description: '民事/行政起诉状，包含原告被告信息、诉讼请求、事实理由' },
+  DEFENSE_STATEMENT: { icon: '📝', description: '针对起诉状的答辩，包含答辩意见和证据清单' },
+  BRIEF: { icon: '⚖️', description: '庭审代理词，包含代理意见、争议焦点、法律依据' },
+  LEGAL_OPINION: { icon: '📋', description: '法律专业意见，包含委托事项、基本情况、法律分析' },
+  LAWYER_LETTER: { icon: '✉️', description: '催告、声明等律师函' }
+}
+
+const docTypes = LEGAL_DOCUMENT_TYPES.map((t) => ({
+  type: t.code,
+  title: t.label,
+  icon: DOC_TYPE_META[t.code]?.icon || '📄',
+  description: DOC_TYPE_META[t.code]?.description || t.description
+}))
 
 // 表单数据
 const formData = reactive({
@@ -340,21 +328,20 @@ const handleGenerate = async () => {
     }, 500)
 
     const response = await generateDoc({
-      docType: selectedDocType.value,
+      documentType: selectedDocType.value,
       caseId: formData.caseId,
-      ...formData
+      customPrompt: formData.claims || formData.defenseOpinion || formData.agentOpinion || '',
+      additionalContext: JSON.stringify(formData)
     })
 
     clearInterval(progressInterval)
     generateProgress.value = 100
 
-    if (response) {
-      // 假设返回的是Blob，需要创建下载链接
-      const blob = new Blob([response], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
-      const url = window.URL.createObjectURL(blob)
-
-      // 读取文档内容进行预览（简化处理）
-      generatedDoc.value = `
+    const content = response?.data ?? response
+    if (content) {
+      generatedDoc.value = typeof content === 'string' ? `
+        <div style="padding: 20px; font-family: SimSun; line-height: 1.8; white-space: pre-wrap;">${content.replace(/</g, '&lt;')}</div>
+      ` : `
         <div style="padding: 20px; font-family: SimSun; line-height: 1.8;">
           <h2 style="text-align: center;">${getSelectedDocTypeTitle()}</h2>
           <p style="color: #999; text-align: center;">生成时间：${new Date().toLocaleString()}</p>
@@ -362,6 +349,8 @@ const handleGenerate = async () => {
           <p style="color: #666;">文书已生成完毕，请点击"下载Word"按钮获取完整文档。</p>
         </div>
       `
+    } else {
+      throw new Error('未返回文书内容')
     }
   } catch (error) {
     ElMessage.error('生成失败：' + error.message)
