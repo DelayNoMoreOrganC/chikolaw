@@ -6,10 +6,13 @@ lawfirm:
       min-spare-threads: 25
       accept-count: 150
       max-connections: 10000
+  ai:
+    mode: ${LAWFIRM_AI_MODE:cloud-glm}
 
 server:
   compression:
     enabled: true
+  forward-headers-strategy: framework
 
 spring:
   datasource:
@@ -32,9 +35,6 @@ spring:
     password: ${REDIS_PASSWORD:}
   autoconfigure:
     exclude: []
-
-server:
-  forward-headers-strategy: framework
 
 backup:
   base:
@@ -64,11 +64,6 @@ hermes:
   agent:
     enabled: ${HERMES_ENABLED:false}
     base-url: ${HERMES_BASE_URL:http://127.0.0.1:17888}
-
-# v2.2 生产同样默认 GLM；v3.0 本地模型时设 LAWFIRM_AI_MODE=hybrid 并配置 LMSTUDIO_*
-lawfirm:
-  ai:
-    mode: ${LAWFIRM_AI_MODE:cloud-glm}
 
 llm:
   fallback:
