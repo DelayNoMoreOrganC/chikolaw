@@ -10,7 +10,7 @@
 set -euo pipefail
 
 APP="${APP:-/opt/lawfirm/app}"
-DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-master}"
 MVN_OPTS="${MVN_OPTS:--DskipTests}"
 JAR_NAME="lawfirm-backend-2.0.0.jar"
 
