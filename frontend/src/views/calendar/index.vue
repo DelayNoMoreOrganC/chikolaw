@@ -60,41 +60,14 @@
           </el-calendar>
         </div>
 
-        <!-- 周视图 -->
-        <div v-show="viewMode === 'week'" class="week-view">
-          <div class="week-header">
-            <div
-              v-for="day in weekDays"
-              :key="day.date"
-              class="day-header"
-              :class="{ 'is-today': day.isToday }"
-            >
-              <div class="day-name">{{ day.name }}</div>
-              <div class="day-date">{{ day.date }}</div>
-            </div>
-          </div>
-
-          <div class="week-body">
-            <div
-              v-for="hour in dayHours"
-              :key="hour"
-              class="hour-row"
-            >
-              <div class="hour-label">{{ hour }}:00</div>
-              <div class="hour-events">
-                <div
-                  v-for="event in getEventsForHour(hour)"
-                  :key="event.id"
-                  class="event-block"
-                  :class="`type-${event.type}`"
-                  @click="handleEventClick(event)"
-                >
-                  <span class="event-time">{{ event.startTime }}</span>
-                  <span class="event-title">{{ event.title }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
+        <!-- 周视图（共享组件） -->
+        <div v-show="viewMode === 'week'" class="week-view-shared">
+          <CalendarWeekView
+            v-model="calendarDate"
+            :events="weekEventsUi"
+            :show-toolbar="false"
+            @event-click="handleEventClick"
+          />
         </div>
 
         <!-- 日视图 -->
@@ -138,57 +111,39 @@
         </div>
       </div>
 
-      <!-- 右侧待办清单 -->
+      <!-- 右侧待办清单（共享 TodoPanelCompact） -->
       <div class="todo-sidebar">
-        <div class="sidebar-header">
-          <h4>待办事项</h4>
-          <el-badge :value="urgentCount" :hidden="urgentCount === 0" class="badge">
-            <el-icon><Bell /></el-icon>
-          </el-badge>
-        </div>
-
-        <div class="todo-filters">
-          <el-radio-group v-model="todoFilter" size="small">
-            <el-radio-button label="all">全部</el-radio-button>
-            <el-radio-button label="pending">待办</el-radio-button>
-            <el-radio-button label="overdue">逾期</el-radio-button>
-          </el-radio-group>
-        </div>
-
-        <div class="todo-list">
-          <div
-            v-for="todo in filteredTodos"
-            :key="todo.id"
-            class="todo-item"
-            :class="getTodoClass(todo)"
-          >
-            <div class="todo-left">
-              <el-checkbox v-model="todo.completed" @change="handleTodoComplete(todo)" />
-              <div class="todo-content">
-                <div class="todo-title">{{ todo.title }}</div>
-                <div class="todo-meta">
-                  <PriorityDot :priority="todo.priority" />
-                  <span class="todo-deadline">{{ formatDeadline(todo.deadline) }}</span>
-                  <el-tag v-if="todo.caseName" size="small" type="info">
-                    {{ todo.caseName }}
-                  </el-tag>
-                </div>
-              </div>
+        <TodoPanelCompact
+          class="calendar-todo-panel"
+          :todos="filteredTodos"
+          :limit="0"
+          :sort="false"
+          title="待办事项"
+          :show-view-all="false"
+          show-actions
+          :item-class-fn="calendarTodoClass"
+          @complete="onTodoCompleteFromPanel"
+          @edit="handleEditTodo"
+          @delete="handleDeleteTodo"
+        >
+          <template #header-extra>
+            <el-badge :value="urgentCount" :hidden="urgentCount === 0" class="urgent-badge">
+              <el-icon><Bell /></el-icon>
+            </el-badge>
+          </template>
+          <template #toolbar>
+            <div class="todo-filters">
+              <el-radio-group v-model="todoFilter" size="small">
+                <el-radio-button label="all">全部</el-radio-button>
+                <el-radio-button label="pending">待办</el-radio-button>
+                <el-radio-button label="overdue">逾期</el-radio-button>
+              </el-radio-group>
             </div>
-            <div class="todo-actions">
-              <el-button text type="primary" size="small" @click="handleEditTodo(todo)">
-                编辑
-              </el-button>
-              <el-button text type="danger" size="small" @click="handleDeleteTodo(todo)">
-                删除
-              </el-button>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="filteredTodos.length === 0" class="empty-state">
-          <el-empty description="暂无待办" />
-        </div>
+          </template>
+          <template #empty>
+            <el-empty description="暂无待办" :image-size="64" />
+          </template>
+        </TodoPanelCompact>
       </div>
     </div>
 
@@ -220,8 +175,10 @@
               <el-date-picker
                 v-model="eventForm.startTime"
                 type="datetime"
-                placeholder="选择开始时间"
+                placeholder="输入或选择开始时间"
+                format="YYYY-MM-DD HH:mm"
                 value-format="YYYY-MM-DD HH:mm"
+                :editable="true"
                 style="width: 100%"
               />
             </el-form-item>
@@ -232,8 +189,10 @@
               <el-date-picker
                 v-model="eventForm.endTime"
                 type="datetime"
-                placeholder="选择结束时间"
+                placeholder="输入或选择结束时间"
+                format="YYYY-MM-DD HH:mm"
                 value-format="YYYY-MM-DD HH:mm"
+                :editable="true"
                 style="width: 100%"
               />
             </el-form-item>
@@ -254,7 +213,7 @@
             <el-option
               v-for="caseItem in caseList"
               :key="caseItem.id"
-              :label="caseItem.name"
+              :label="caseItem.caseName || caseItem.name"
               :value="caseItem.id"
             />
           </el-select>
@@ -271,7 +230,7 @@
             <el-option
               v-for="user in userList"
               :key="user.id"
-              :label="user.name"
+              :label="user.realName || user.name || user.username"
               :value="user.id"
             />
           </el-select>
@@ -338,8 +297,10 @@
           <el-date-picker
             v-model="todoForm.deadline"
             type="datetime"
-            placeholder="选择截止时间"
+            placeholder="输入或选择截止时间"
+            format="YYYY-MM-DD HH:mm"
             value-format="YYYY-MM-DD HH:mm"
+            :editable="true"
             style="width: 100%"
           />
         </el-form-item>
@@ -354,13 +315,13 @@
             <el-option
               v-for="caseItem in caseList"
               :key="caseItem.id"
-              :label="caseItem.name"
+              :label="caseItem.caseName || caseItem.name"
               :value="caseItem.id"
             />
           </el-select>
         </el-form-item>
 
-        <el-form-item label="负责人">
+        <el-form-item label="负责人" prop="assignee">
           <el-select
             v-model="todoForm.assignee"
             filterable
@@ -370,7 +331,7 @@
             <el-option
               v-for="user in userList"
               :key="user.id"
-              :label="user.name"
+              :label="user.realName || user.name || user.username"
               :value="user.id"
             />
           </el-select>
@@ -402,66 +363,48 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="eventDetailVisible" title="日程详情" size="420px" destroy-on-close>
-      <template v-if="selectedEventDetail">
-        <el-descriptions :column="1" border>
-          <el-descriptions-item label="标题">{{ selectedEventDetail.title }}</el-descriptions-item>
-          <el-descriptions-item label="类型">
-            {{ calendarTypeLabel(selectedEventDetail.calendarType || selectedEventDetail.type) }}
-          </el-descriptions-item>
-          <el-descriptions-item label="开始">{{ selectedEventDetail.startTime }}</el-descriptions-item>
-          <el-descriptions-item label="结束">{{ selectedEventDetail.endTime || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="地点">{{ selectedEventDetail.location || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="关联案件">{{ selectedEventDetail.caseName || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="重复">
-            {{ repeatRuleLabel(selectedEventDetail.repeatRule || selectedEventDetail.repeat) }}
-          </el-descriptions-item>
-        </el-descriptions>
-        <div class="drawer-actions">
-          <el-button type="primary" @click="handleEditFromDetail">编辑</el-button>
-          <el-button type="danger" plain @click="handleDeleteFromDetail">删除</el-button>
-        </div>
-      </template>
-    </el-drawer>
+    <CalendarEventDrawer
+      v-model:visible="eventDetailVisible"
+      :event="selectedEventUi"
+      :editable="true"
+      @edit="handleEditFromDetail"
+      @delete="handleDeleteFromDetail"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useUserStore } from '@/stores/user'
+import { getCaseList } from '@/api/case'
+import { getUserList } from '@/api/user'
+import { formatLocalDateTime } from '@/utils/datetime'
 import {
   Plus, ArrowLeft, ArrowRight, Bell, Location, Briefcase, Clock, Document, Files, Reading
 } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
-import PriorityDot from '@/components/PriorityDot.vue'
+import CalendarWeekView from '@/components/calendar/CalendarWeekView.vue'
+import TodoPanelCompact from '@/components/calendar/TodoPanelCompact.vue'
+import CalendarEventDrawer from '@/components/calendar/CalendarEventDrawer.vue'
 import { getCalendarEvents, createEvent, updateEvent, deleteEvent } from '@/api/calendar'
 import { getTodos, createTodo, updateTodo, deleteTodo } from '@/api/todo'
 import { toCalendarPayload, calendarToForm, normalizeCalendarEvent } from '@/api/calendarPayload'
+import {
+  mapApiEventToUi,
+  getEventTagType,
+  formatDateToString,
+  startOfWeek,
+  endOfWeek,
+  getEventsForDate as filterEventsByDate,
+  calendarTodoClass,
+  isTodoOverdue
+} from '@/utils/calendarUi'
 
-const CALENDAR_TYPE_LABELS = {
-  HEARING: '开庭/听证',
-  hearing: '开庭/听证',
-  DEADLINE: '审限届满',
-  deadline: '审限届满',
-  FILING: '立案',
-  filing: '立案',
-  MEDIATION: '调解/和解',
-  mediation: '调解/和解',
-  EVIDENCE: '举证截止',
-  evidence: '举证截止',
-  OTHER: '其他',
-  other: '其他'
-}
+const route = useRoute()
 
-const REPEAT_LABELS = {
-  daily: '每天',
-  weekly: '每周',
-  monthly: '每月',
-  yearly: '每年'
-}
-
-const calendarTypeLabel = (t) => CALENDAR_TYPE_LABELS[t] || t || '-'
-const repeatRuleLabel = (r) => (r ? REPEAT_LABELS[r] || r : '不重复')
+const userStore = useUserStore()
 
 // 视图模式
 const viewMode = ref('month')
@@ -470,6 +413,13 @@ const calendarDate = ref(new Date())
 // 日程事件
 const eventList = ref([])
 
+const weekEventsUi = computed(() =>
+  eventList.value.map((e) => mapApiEventToUi({
+    ...e,
+    calendarType: e.calendarType || (e.type || '').toUpperCase()
+  }))
+)
+
 // 待办事项
 const todoList = ref([])
 const todoFilter = ref('all')
@@ -477,7 +427,7 @@ const todoFilter = ref('all')
 // 对话框
 const eventDialogVisible = ref(false)
 const eventDetailVisible = ref(false)
-const selectedEventDetail = ref(null)
+const selectedEventUi = ref(null)
 const todoDialogVisible = ref(false)
 const isEditEvent = ref(false)
 const isEditTodo = ref(false)
@@ -521,20 +471,26 @@ const eventRules = {
 const todoRules = {
   title: [{ required: true, message: '请输入标题', trigger: 'blur' }],
   priority: [{ required: true, message: '请选择优先级', trigger: 'change' }],
-  deadline: [{ required: true, message: '请选择截止时间', trigger: 'change' }]
+  deadline: [{ required: true, message: '请选择截止时间', trigger: 'change' }],
+  assignee: [{ required: true, message: '请选择负责人', trigger: 'change' }]
 }
 
-// 预置数据
-const caseList = ref([
-  { id: '1', name: '张三诉李四买卖合同纠纷' },
-  { id: '2', name: '王五离婚纠纷' }
-])
+const caseList = ref([])
+const userList = ref([])
 
-const userList = ref([
-  { id: '1', name: '张律师' },
-  { id: '2', name: '李律师' },
-  { id: '3', name: '小张' }
-])
+const loadLookupData = async () => {
+  try {
+    const [caseRes, userRes] = await Promise.all([
+      getCaseList({ page: 1, size: 200 }),
+      getUserList({ page: 1, size: 200 })
+    ])
+    caseList.value = caseRes.data?.records || caseRes.data?.list || []
+    const rawUsers = userRes.data
+    userList.value = rawUsers?.records || rawUsers?.content || rawUsers?.list || (Array.isArray(rawUsers) ? rawUsers : [])
+  } catch (e) {
+    console.warn('加载案件/用户列表失败', e)
+  }
+}
 
 // 当前月份
 const currentMonth = computed(() => {
@@ -549,26 +505,6 @@ const currentDayTitle = computed(() => {
   return `${date.getMonth() + 1}月${date.getDate()}日 星期${weekDays[date.getDay()]}`
 })
 
-// 周视图日期
-const weekDays = computed(() => {
-  const days = []
-  const today = new Date()
-  const baseDate = new Date(calendarDate.value)  // 使用 calendarDate 而不是 today
-  const startOfWeek = new Date(baseDate)
-  startOfWeek.setDate(baseDate.getDate() - baseDate.getDay())
-
-  for (let i = 0; i < 7; i++) {
-    const day = new Date(startOfWeek)
-    day.setDate(startOfWeek.getDate() + i)
-    days.push({
-      name: ['日', '一', '二', '三', '四', '五', '六'][day.getDay()],
-      date: `${day.getMonth() + 1}/${day.getDate()}`,
-      isToday: day.toDateString() === today.toDateString()
-    })
-  }
-  return days
-})
-
 // 一天的小时数
 const dayHours = Array.from({ length: 12 }, (_, i) => i + 8) // 8:00 - 19:00
 
@@ -579,13 +515,12 @@ const filteredTodos = computed(() => {
   if (todoFilter.value === 'pending') {
     filtered = filtered.filter(todo => !todo.completed)
   } else if (todoFilter.value === 'overdue') {
-    filtered = filtered.filter(todo => new Date(todo.deadline) < new Date() && !todo.completed)
+    filtered = filtered.filter(todo => isTodoOverdue(todo.deadline) && !todo.completed)
   }
 
   return filtered.sort((a, b) => {
-    // 逾期置顶
-    const aOverdue = isOverdue(a.deadline)
-    const bOverdue = isOverdue(b.deadline)
+    const aOverdue = isTodoOverdue(a.deadline)
+    const bOverdue = isTodoOverdue(b.deadline)
     if (aOverdue && !bOverdue) return -1
     if (!aOverdue && bOverdue) return 1
 
@@ -603,18 +538,8 @@ const urgentCount = computed(() => {
   }).length
 })
 
-// 判断是否逾期
-const isOverdue = (deadline) => {
-  return new Date(deadline) < new Date()
-}
-
 // 获取指定日期的事件
-const getEventsForDate = (date) => {
-  return eventList.value.filter((event) => {
-    const s = (event.startTime || '').replace('T', ' ')
-    return s.startsWith(date)
-  })
-}
+const getEventsForDate = (date) => filterEventsByDate(eventList.value, date)
 
 // 获取指定小时的事件
 const getEventsForHour = (hour) => {
@@ -622,30 +547,6 @@ const getEventsForHour = (hour) => {
     const eventHour = parseInt(event.startTime.split(' ')[1].split(':')[0])
     return eventHour === hour
   })
-}
-
-// 获取事件标签类型（红/橙/蓝/绿/紫）
-const getEventTagType = (type) => {
-  const typeMap = {
-    'hearing': 'danger',      // 开庭/听证 → 红色
-    'deadline': 'warning',    // 审限届满 → 橙色
-    'filing': 'primary',      // 立案 → 蓝色
-    'mediation': 'success',   // 调解/和解 → 绿色
-    'evidence': 'info'        // 举证截止 → 紫色
-  }
-  return typeMap[type] || ''
-}
-
-// 获取事件颜色（用于边框和背景）
-const getEventColor = (type) => {
-  const colorMap = {
-    'hearing': '#f56c6c',     // 红色
-    'deadline': '#e6a23c',    // 橙色
-    'filing': '#409eff',      // 蓝色
-    'mediation': '#67c23a',   // 绿色
-    'evidence': '#909399'     // 紫色
-  }
-  return colorMap[type] || '#909399'
 }
 
 // 获取事件图标
@@ -658,29 +559,6 @@ const getEventIcon = (type) => {
     'evidence': Files
   }
   return iconMap[type] || Bell
-}
-
-// 获取待办样式类
-const getTodoClass = (todo) => {
-  if (todo.completed) return 'todo-completed'
-  if (isOverdue(todo.deadline)) return 'todo-overdue'
-  const days = Math.ceil((new Date(todo.deadline) - new Date()) / (1000 * 60 * 60 * 24))
-  if (days <= 3) return 'todo-urgent'
-  if (days <= 7) return 'todo-warning'
-  return ''
-}
-
-// 格式化截止时间
-const formatDeadline = (deadline) => {
-  const date = new Date(deadline)
-  const now = new Date()
-  const days = Math.ceil((date - now) / (1000 * 60 * 60 * 24))
-
-  if (days < 0) return `已逾期${Math.abs(days)}天`
-  if (days === 0) return '今天'
-  if (days === 1) return '明天'
-  if (days <= 7) return `${days}天后`
-  return deadline
 }
 
 // 视图切换
@@ -728,23 +606,27 @@ const handleDayClick = (date) => {
 
 // 点击事件
 const handleEventClick = (event) => {
-  selectedEventDetail.value = event
+  selectedEventUi.value = event?.data ? event : mapApiEventToUi(event)
   eventDetailVisible.value = true
 }
 
+const getSelectedEventRaw = () => selectedEventUi.value?.data || selectedEventUi.value
+
 const handleEditFromDetail = () => {
-  if (!selectedEventDetail.value) return
+  const raw = getSelectedEventRaw()
+  if (!raw) return
   isEditEvent.value = true
-  Object.assign(eventForm, calendarToForm(selectedEventDetail.value))
+  Object.assign(eventForm, calendarToForm(raw))
   eventDetailVisible.value = false
   eventDialogVisible.value = true
 }
 
 const handleDeleteFromDetail = async () => {
-  if (!selectedEventDetail.value?.id) return
+  const raw = getSelectedEventRaw()
+  if (!raw?.id) return
   try {
     await ElMessageBox.confirm('确定删除该日程吗？', '提示', { type: 'warning' })
-    await deleteEvent(selectedEventDetail.value.id)
+    await deleteEvent(raw.id)
     ElMessage.success('已删除')
     eventDetailVisible.value = false
     await fetchEvents()
@@ -756,12 +638,15 @@ const handleDeleteFromDetail = async () => {
 // 新建日程
 const handleCreateEvent = () => {
   isEditEvent.value = false
+  const now = new Date()
+  const end = new Date(now)
+  end.setHours(end.getHours() + 1)
   Object.assign(eventForm, {
     id: null,
     title: '',
-    type: '',
-    startTime: new Date().toISOString().slice(0, 16).replace('T', ' '),
-    endTime: '',
+    type: 'other',
+    startTime: formatLocalDateTime(now),
+    endTime: formatLocalDateTime(end),
     location: '',
     caseId: '',
     participants: [],
@@ -775,13 +660,16 @@ const handleCreateEvent = () => {
 // 新建待办
 const handleCreateTodo = () => {
   isEditTodo.value = false
+  const due = new Date()
+  due.setDate(due.getDate() + 3)
+  due.setHours(18, 0, 0, 0)
   Object.assign(todoForm, {
     id: null,
     title: '',
     priority: 'medium',
-    deadline: new Date().toISOString().slice(0, 16).replace('T', ' '),
+    deadline: formatLocalDateTime(due),
     caseId: '',
-    assignee: '',
+    assignee: userStore.userId || '',
     reminder: '',
     remark: ''
   })
@@ -824,6 +712,11 @@ const handleDeleteTodo = async (todo) => {
 }
 
 // 完成待办
+const onTodoCompleteFromPanel = (todo, completed) => {
+  todo.completed = completed
+  handleTodoComplete(todo)
+}
+
 const handleTodoComplete = (todo) => {
   ElMessage.success('待办状态已更新')
 }
@@ -832,6 +725,11 @@ const handleTodoComplete = (todo) => {
 const handleSubmitEvent = async () => {
   try {
     await eventFormRef.value?.validate()
+    if (!eventForm.endTime && eventForm.startTime) {
+      const end = new Date(eventForm.startTime.replace(' ', 'T'))
+      end.setHours(end.getHours() + 1)
+      eventForm.endTime = formatLocalDateTime(end)
+    }
 
     const payload = toCalendarPayload(eventForm)
     if (isEditEvent.value) {
@@ -843,10 +741,9 @@ const handleSubmitEvent = async () => {
     }
 
     eventDialogVisible.value = false
-    // 重新加载数据
     await fetchEvents()
   } catch (error) {
-    if (error.message) {
+    if (error !== false && error?.message && !error?.response) {
       ElMessage.error(error.message)
     }
   }
@@ -856,20 +753,21 @@ const handleSubmitEvent = async () => {
 const handleSubmitTodo = async () => {
   try {
     await todoFormRef.value?.validate()
+    const assigneeId = todoForm.assignee || userStore.userId
+    const payload = { ...todoForm, assignee: assigneeId }
 
     if (isEditTodo.value) {
-      await updateTodo(todoForm.id, todoForm)
+      await updateTodo(todoForm.id, payload)
       ElMessage.success('更新成功')
     } else {
-      await createTodo(todoForm)
+      await createTodo(payload)
       ElMessage.success('创建成功')
     }
 
     todoDialogVisible.value = false
-    // 重新加载数据
     await fetchTodos()
   } catch (error) {
-    if (error.message) {
+    if (error !== false && error?.message && !error?.response) {
       ElMessage.error(error.message)
     }
   }
@@ -885,13 +783,8 @@ const fetchEvents = async () => {
       startDate = getCurrentMonthStart()
       endDate = getCurrentMonthEnd()
     } else if (viewMode.value === 'week') {
-      const today = new Date(calendarDate.value)
-      const startOfWeek = new Date(today)
-      startOfWeek.setDate(today.getDate() - today.getDay())
-      const endOfWeek = new Date(startOfWeek)
-      endOfWeek.setDate(startOfWeek.getDate() + 6)
-      startDate = formatDateToString(startOfWeek)
-      endDate = formatDateToString(endOfWeek)
+      startDate = formatDateToString(startOfWeek(calendarDate.value))
+      endDate = formatDateToString(endOfWeek(calendarDate.value))
     } else {
       // 日视图
       startDate = formatDateToString(new Date(calendarDate.value))
@@ -908,15 +801,6 @@ const fetchEvents = async () => {
     console.error('获取日程事件失败:', error)
     ElMessage.error('获取日程事件失败')
   }
-}
-
-// 格式化日期为YYYY-MM-DD
-const formatDateToString = (date) => {
-  const d = new Date(date)
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 const fetchTodos = async () => {
@@ -941,9 +825,18 @@ const getCurrentMonthEnd = () => {
   return `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`
 }
 
-// 初始化
-fetchEvents()
-fetchTodos()
+onMounted(() => {
+  const qView = route.query.view
+  if (qView === 'week' || qView === 'month' || qView === 'day') {
+    viewMode.value = qView
+  }
+  if (route.query.filter === 'overdue') {
+    todoFilter.value = 'overdue'
+  }
+  loadLookupData()
+  fetchEvents()
+  fetchTodos()
+})
 </script>
 
 <style scoped lang="scss">
@@ -1037,114 +930,11 @@ fetchTodos()
       }
     }
 
-    .week-view {
+    .week-view-shared {
       background-color: #fff;
-      padding: 20px;
+      padding: 12px 20px 20px;
       border-radius: 4px;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-
-      .week-header {
-        display: grid;
-        grid-template-columns: 60px repeat(7, 1fr);
-        gap: 10px;
-        margin-bottom: 10px;
-        padding-bottom: 10px;
-        border-bottom: 1px solid #e4e7ed;
-
-        .day-header {
-          text-align: center;
-
-          &.is-today {
-            .day-name {
-              color: #1890ff;
-              font-weight: bold;
-            }
-
-            .day-date {
-              color: #1890ff;
-              font-weight: bold;
-            }
-          }
-
-          .day-name {
-            font-size: 12px;
-            color: #909399;
-          }
-
-          .day-date {
-            font-size: 14px;
-            color: #333;
-            margin-top: 4px;
-          }
-        }
-      }
-
-      .week-body {
-        .hour-row {
-          display: grid;
-          grid-template-columns: 60px 1fr;
-          gap: 10px;
-          min-height: 50px;
-          border-bottom: 1px solid #f0f0f0;
-
-          .hour-label {
-            font-size: 12px;
-            color: #909399;
-            text-align: center;
-            padding-top: 10px;
-          }
-
-          .hour-events {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-
-            .event-block {
-              padding: 5px 10px;
-              border-radius: 4px;
-              cursor: pointer;
-              font-size: 12px;
-              border-left: 3px solid;
-              transition: all 0.3s;
-
-              &:hover {
-                transform: translateX(2px);
-                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-              }
-
-              &.type-hearing {
-                background-color: #fef0f0;
-                color: #f56c6c;
-                border-left-color: #f56c6c;
-              }
-
-              &.type-deadline {
-                background-color: #fdf6ec;
-                color: #e6a23c;
-                border-left-color: #e6a23c;
-              }
-
-              &.type-filing {
-                background-color: #ecf5ff;
-                color: #409eff;
-                border-left-color: #409eff;
-              }
-
-              &.type-mediation {
-                background-color: #f0f9ff;
-                color: #67c23a;
-                border-left-color: #67c23a;
-              }
-
-              &.type-evidence {
-                background-color: #f4f4f5;
-                color: #909399;
-                border-left-color: #909399;
-              }
-            }
-          }
-        }
-      }
     }
 
     .day-view {
@@ -1264,118 +1054,21 @@ fetchTodos()
     display: flex;
     flex-direction: column;
     max-height: calc(100vh - 200px);
+    padding: 12px 16px;
 
-    .sidebar-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 15px 20px;
-      border-bottom: 1px solid #e4e7ed;
-
-      h4 {
-        margin: 0;
-        font-size: 14px;
-        color: #333;
-      }
-
-      .badge {
-        font-size: 18px;
-        color: #f56c6c;
-      }
+    .calendar-todo-panel {
+      flex: 1;
+      min-height: 0;
     }
 
     .todo-filters {
-      padding: 10px 20px;
-      border-bottom: 1px solid #e4e7ed;
+      margin-bottom: 8px;
     }
 
-    .todo-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 10px 20px;
-
-      .todo-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 12px;
-        border-bottom: 1px solid #f0f0f0;
-        transition: background-color 0.3s;
-
-        &:hover {
-          background-color: #f5f5f5;
-        }
-
-        &:last-child {
-          border-bottom: none;
-        }
-
-        &.todo-overdue {
-          background-color: #fff1f0;
-          border-left: 3px solid #f56c6c;
-        }
-
-        &.todo-urgent {
-          .todo-title {
-            color: #f56c6c;
-          }
-        }
-
-        &.todo-warning {
-          .todo-title {
-            color: #e6a23c;
-          }
-        }
-
-        &.todo-completed {
-          opacity: 0.6;
-          text-decoration: line-through;
-        }
-
-        .todo-left {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          flex: 1;
-
-          .todo-content {
-            .todo-title {
-              font-size: 14px;
-              color: #333;
-              margin-bottom: 4px;
-            }
-
-            .todo-meta {
-              display: flex;
-              align-items: center;
-              gap: 8px;
-              font-size: 12px;
-              color: #999;
-
-              .todo-deadline {
-                color: #f56c6c;
-              }
-            }
-          }
-        }
-
-        .todo-actions {
-          display: flex;
-          gap: 8px;
-        }
-      }
+    .urgent-badge {
+      font-size: 18px;
+      color: #f56c6c;
     }
-
-    .empty-state {
-      padding: 40px 20px;
-      text-align: center;
-    }
-  }
-
-  .drawer-actions {
-    margin-top: 20px;
-    display: flex;
-    gap: 10px;
   }
 }
 </style>

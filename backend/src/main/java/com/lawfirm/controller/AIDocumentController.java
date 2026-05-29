@@ -3,6 +3,7 @@ package com.lawfirm.controller;
 import com.lawfirm.dto.AIDocumentRecognitionResult;
 import com.lawfirm.security.SecurityUtils;
 import com.lawfirm.service.AIDocumentService;
+import com.lawfirm.util.AiDocumentFileSupport;
 import com.lawfirm.util.Result;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +33,8 @@ public class AIDocumentController {
     @PostMapping("/recognize")
     public Result<AIDocumentRecognitionResult> recognizeLegalDocument(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "caseId", required = false) Long caseId) {
+            @RequestParam(value = "caseId", required = false) Long caseId,
+            @RequestParam(value = "executeBusinessLogic", defaultValue = "true") boolean executeBusinessLogic) {
 
         try {
             // 参数校验
@@ -40,16 +42,12 @@ public class AIDocumentController {
                 return Result.error("文件不能为空");
             }
 
-            // 检查文件类型
-            String contentType = file.getContentType();
-            if (contentType == null || (!contentType.startsWith("image/") &&
-                    !contentType.equals("application/pdf"))) {
-                return Result.error("仅支持图片和PDF文件");
+            if (!AiDocumentFileSupport.isSupported(file)) {
+                return Result.error(AiDocumentFileSupport.unsupportedMessage());
             }
 
-            // 文件大小校验（限制10MB）
-            if (file.getSize() > 10 * 1024 * 1024) {
-                return Result.error("文件大小不能超过10MB");
+            if (AiDocumentFileSupport.exceedsMaxSize(file)) {
+                return Result.error(AiDocumentFileSupport.maxSizeMessage());
             }
 
             // 获取当前用户ID
@@ -59,7 +57,8 @@ public class AIDocumentController {
                     file.getOriginalFilename(), file.getSize(), userId, caseId);
 
             // 执行识别
-            AIDocumentRecognitionResult result = aiDocumentService.recognizeLegalDocument(file, userId, caseId);
+            AIDocumentRecognitionResult result = aiDocumentService.recognizeLegalDocument(
+                    file, userId, caseId, executeBusinessLogic);
 
             log.info("AI文档识别完成，案号: {}, 法院: {}, 文书类型: {}",
                     result.getCaseNumber(), result.getCourtName(), result.getDocumentType());

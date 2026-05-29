@@ -92,4 +92,9 @@ public class CaseQueryRequest {
      * 当前用户ID（用于数据权限过滤）
      */
     private Long currentUserId;
+
+    /**
+     * 快捷筛选：pending_approval（待利冲审批）、pending_intake（待挂接卷宗）
+     */
+    private String quickFilter;
 }

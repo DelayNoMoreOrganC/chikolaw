@@ -2,6 +2,14 @@
   <div class="ai-hub">
     <PageHeader title="AI智能助手中心" />
 
+    <AiHealthStrip />
+
+    <AiUnifiedWizard
+      :initial-intent="wizardIntent"
+      :case-id="wizardCaseId"
+      @doc-gen="onWizardDocGen"
+    />
+
     <div class="ai-container">
       <!-- 功能导航卡片 -->
       <el-row :gutter="20" class="feature-cards">
@@ -22,65 +30,18 @@
 
       <!-- 功能区域 -->
       <div class="feature-section">
-        <!-- 文书智能识别 -->
+        <!-- 文书智能识别（统一走顶部向导，避免重复上传） -->
         <div v-show="activeFeature === 'recognition'" class="feature-panel">
           <el-card>
             <template #header>
               <div class="panel-header">
                 <span>📄 {{ AI_RECOGNITION.featureName }}</span>
-                <el-tag type="success">支持PDF/图片</el-tag>
+                <el-tag type="success">请使用页顶「智能文书向导」</el-tag>
               </div>
             </template>
-
-            <div class="ocr-section">
-              <!-- 上传区域 -->
-              <div
-                class="upload-area"
-                :class="{ 'drag-over': isDragOver, 'uploading': isUploading }"
-                @drop.prevent="handleDrop"
-                @dragover.prevent="isDragOver = true"
-                @dragleave.prevent="isDragOver = false"
-              >
-                <el-upload
-                  ref="uploadRef"
-                  :auto-upload="false"
-                  :show-file-list="false"
-                  :on-change="handleFileChange"
-                  accept=".pdf,.jpg,.jpeg,.png"
-                  drag
-                >
-                  <div class="upload-content">
-                    <el-icon class="upload-icon"><UploadFilled /></el-icon>
-                    <p class="upload-text">拖拽文件到此处或点击上传</p>
-                    <p class="upload-hint">支持PDF、JPG、PNG格式，最大10MB</p>
-                  </div>
-                </el-upload>
-              </div>
-
-              <!-- 识别结果 -->
-              <div v-if="ocrResult" class="ocr-result">
-                <h4>识别结果</h4>
-                <el-descriptions :column="2" border>
-                  <el-descriptions-item label="文档类型">{{ ocrResult.documentType }}</el-descriptions-item>
-                  <el-descriptions-item label="法院">{{ ocrResult.court }}</el-descriptions-item>
-                  <el-descriptions-item label="案号">{{ ocrResult.caseNumber }}</el-descriptions-item>
-                  <el-descriptions-item label="案件性质">{{ ocrResult.caseNature }}</el-descriptions-item>
-                  <el-descriptions-item label="当事人" :span="2">{{ ocrResult.parties }}</el-descriptions-item>
-                  <el-descriptions-item label="案由" :span="2">{{ ocrResult.caseCause }}</el-descriptions-item>
-                </el-descriptions>
-
-                <div class="result-actions">
-                  <el-button type="primary" @click="createCaseFromRecognition">创建案件</el-button>
-                  <el-button @click="clearRecognitionResult">重新识别</el-button>
-                </div>
-              </div>
-
-              <!-- 识别进度 -->
-              <div v-if="isUploading" class="upload-progress">
-                <el-progress :percentage="uploadProgress" :status="uploadStatus" />
-                <p>{{ uploadStatusText }}</p>
-              </div>
-            </div>
+            <el-alert type="info" show-icon :closable="false" title="识别与卷宗挂接已整合到页顶三步向导">
+              <p>支持：归入卷宗、预填建案、创建待办/日程、仅识别要素。从案件文档 Tab 或工作台进入时会自动带上案件上下文。</p>
+            </el-alert>
           </el-card>
         </div>
 
@@ -95,7 +56,30 @@
             </template>
 
             <div class="doc-gen-section">
+              <AiProgressBanner
+                :active="docProgressActive"
+                :title="docProgressTitle"
+                :hint="docProgressHint"
+                :elapsed-sec="docProgressElapsed"
+              />
               <el-form :model="docForm" label-width="120px">
+                <el-form-item label="关联案件" required>
+                  <el-select
+                    v-model="docForm.caseId"
+                    filterable
+                    placeholder="请选择要生成文书的案件"
+                    style="width: 100%"
+                    :loading="casesLoading"
+                  >
+                    <el-option
+                      v-for="c in caseOptions"
+                      :key="c.id"
+                      :label="`${c.caseName || '未命名'} (#${c.id})`"
+                      :value="c.id"
+                    />
+                  </el-select>
+                  <p v-if="wizardCaseId" class="form-hint">已从案件页带入案件 ID：{{ wizardCaseId }}</p>
+                </el-form-item>
                 <el-form-item label="文书类型">
                   <el-select v-model="docForm.templateType" placeholder="选择文书模板">
                     <el-option
@@ -147,7 +131,8 @@
                   readonly
                 />
                 <div class="doc-actions">
-                  <el-button type="success" @click="downloadDoc">下载文档</el-button>
+                  <el-button type="success" @click="downloadDoc">下载 TXT</el-button>
+                  <el-button type="primary" @click="handleExportDocx" :loading="docxDownloading">下载 Word</el-button>
                   <el-button @click="copyDoc">复制内容</el-button>
                 </div>
               </div>
@@ -166,6 +151,12 @@
             </template>
 
             <div class="qa-section">
+              <AiProgressBanner
+                :active="qaProgressActive"
+                :title="qaProgressTitle"
+                :hint="qaProgressHint"
+                :elapsed-sec="qaProgressElapsed"
+              />
               <!-- 对话历史 -->
               <div class="chat-history" ref="chatHistoryRef">
                 <div
@@ -181,8 +172,12 @@
                     <el-icon v-else class="ai-avatar" :size="32"><ChatDotRound /></el-icon>
                   </div>
                   <div class="message-content">
-                    <div class="message-text" v-html="formatMessage(message.content)"></div>
-                    <div class="message-time">{{ message.time }}</div>
+                    <div v-if="message.pending" class="message-pending">
+                      <el-icon class="is-loading"><Loading /></el-icon>
+                      AI 思考中，预计 20 秒至 1 分钟…
+                    </div>
+                    <div v-else class="message-text" v-html="formatMessage(message.content)"></div>
+                    <div v-if="!message.pending" class="message-time">{{ message.time }}</div>
                   </div>
                 </div>
               </div>
@@ -272,11 +267,21 @@
                 <el-table-column prop="date" label="日期" width="120" />
                 <el-table-column prop="functionType" label="功能类型" width="120">
                   <template #default="{ row }">
-                    <el-tag v-if="row.functionType === 'OCR' || row.functionType === 'DOCUMENT_RECOGNITION'" type="success">
+                    <el-tag
+                      v-if="row.functionType === 'OCR_RECOGNITION' || row.functionType === 'OCR' || row.functionType === 'DOCUMENT_RECOGNITION'"
+                      type="success"
+                    >
                       {{ formatAiFunctionType(row.functionType) }}
                     </el-tag>
-                    <el-tag v-else-if="row.functionType === 'DOC_GEN'" type="warning">文书生成</el-tag>
-                    <el-tag v-else-if="row.functionType === 'QA'" type="info">AI问答</el-tag>
+                    <el-tag v-else-if="row.functionType === 'DOCUMENT_GENERATION' || row.functionType === 'DOC_GEN'" type="warning">
+                      文书生成
+                    </el-tag>
+                    <el-tag
+                      v-else-if="row.functionType === 'LEGAL_QA' || row.functionType === 'QA' || row.functionType === 'LEGAL_CHAT'"
+                      type="info"
+                    >
+                      AI问答
+                    </el-tag>
                     <el-tag v-else type="">{{ row.functionType }}</el-tag>
                   </template>
                 </el-table-column>
@@ -314,7 +319,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElNotification } from 'element-plus'
 import {
   UploadFilled,
@@ -322,11 +327,19 @@ import {
   View,
   ChatDotRound,
   Promotion,
-  Delete
+  Delete,
+  Loading
 } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
+import AiHealthStrip from '@/components/AiHealthStrip.vue'
+import AiProgressBanner from '@/components/AiProgressBanner.vue'
+import AiUnifiedWizard from '@/components/AiUnifiedWizard.vue'
 import * as aiApi from '@/api/ai'
+import { getCaseList } from '@/api/case'
 import { useUserStore } from '@/stores'
+import { useDocumentExport } from '@/composables/useDocumentExport'
+import { useAiProgress, AI_PROGRESS_HINTS } from '@/composables/useAiProgress'
+import { notifyAiError } from '@/utils/aiError'
 import {
   AI_RECOGNITION,
   AI_DOCUMENT_GEN,
@@ -335,7 +348,28 @@ import {
 } from '@/config/ai-terminology'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
+const { exporting: docxDownloading, downloadDocx, downloadTxt } = useDocumentExport()
+const {
+  active: docProgressActive,
+  title: docProgressTitle,
+  hint: docProgressHint,
+  elapsedSec: docProgressElapsed,
+  start: docProgressStart,
+  stop: docProgressStop
+} = useAiProgress()
+const {
+  active: qaProgressActive,
+  title: qaProgressTitle,
+  hint: qaProgressHint,
+  elapsedSec: qaProgressElapsed,
+  start: qaProgressStart,
+  stop: qaProgressStop
+} = useAiProgress()
+
+const wizardIntent = computed(() => route.query.intent || '')
+const wizardCaseId = computed(() => route.query.caseId || null)
 const userName = computed(() => userStore.userInfo?.realName || '用户')
 
 const CASE_CREATE_PREFILL_KEY = 'case_create_prefill'
@@ -377,20 +411,15 @@ const aiFeatures = ref([
 // 当前激活的功能
 const activeFeature = ref('recognition')
 
-// 文书识别相关
-const isDragOver = ref(false)
-const isUploading = ref(false)
-const uploadProgress = ref(0)
-const uploadStatus = ref('')
-const uploadStatusText = ref('')
-const ocrResult = ref(null)
-
 // 文书生成相关
 const docForm = reactive({
+  caseId: null,
   templateType: '',
   caseType: '',
   keyInfo: ''
 })
+const caseOptions = ref([])
+const casesLoading = ref(false)
 const isGenerating = ref(false)
 const generatedDoc = ref('')
 const docPreviewVisible = ref(false)
@@ -427,123 +456,58 @@ const selectFeature = (featureId) => {
   }
 }
 
-// 文书识别相关方法
-const handleDrop = (e) => {
-  isDragOver.value = false
-  const files = e.dataTransfer.files
-  if (files.length > 0) {
-    processFile(files[0])
+function resolveActiveFeatureFromRoute() {
+  const intent = route.query.intent
+  if (intent === 'docGen') return 'docGen'
+  if (intent === 'recognize' || intent === 'intake' || intent === 'prefill' || intent === 'todo') {
+    return 'recognition'
   }
+  if (intent === 'qa') return 'qa'
+  return activeFeature.value
 }
 
-const handleFileChange = (file) => {
-  if (file.raw) {
-    processFile(file.raw)
-  }
+function onWizardDocGen() {
+  activeFeature.value = 'docGen'
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-const processFile = async (file) => {
-  // 验证文件类型
-  const validTypes = ['application/pdf', 'image/jpeg', 'image/png']
-  if (!validTypes.includes(file.type)) {
-    ElMessage.error('仅支持PDF、JPG、PNG格式文件')
-    return
-  }
-
-  // 验证文件大小（10MB）
-  if (file.size > 10 * 1024 * 1024) {
-    ElMessage.error('文件大小不能超过10MB')
-    return
-  }
-
-  isUploading.value = true
-  uploadProgress.value = 0
-  uploadStatus.value = ''
-  uploadStatusText.value = '正在上传文件...'
-
+async function loadCaseOptions() {
+  casesLoading.value = true
   try {
-    // 模拟上传进度
-    const progressInterval = setInterval(() => {
-      if (uploadProgress.value < 90) {
-        uploadProgress.value += 10
+    const listRes = await getCaseList({ page: 1, size: 50 })
+    const records = listRes.data?.records || listRes.data?.list || []
+    caseOptions.value = records
+    if (wizardCaseId.value && !docForm.caseId) {
+      const id = Number(wizardCaseId.value)
+      if (caseOptions.value.some((c) => c.id === id)) {
+        docForm.caseId = id
       }
-    }, 200)
-
-    const response = await aiApi.recognizeLegalDocument(file)
-
-    clearInterval(progressInterval)
-    uploadProgress.value = 100
-    uploadStatus.value = 'success'
-    uploadStatusText.value = '识别完成！'
-
-    if (response.code === 200 || response.success) {
-      ocrResult.value = response.data
-      ElNotification.success({
-        title: AI_RECOGNITION.successTitle,
-        message: '文档识别完成，请查看结果'
-      })
-    } else {
-      throw new Error(response.message || AI_RECOGNITION.failMessage)
     }
-  } catch (error) {
-    uploadStatus.value = 'exception'
-    uploadStatusText.value = '识别失败：' + error.message
-    ElMessage.error(`${AI_RECOGNITION.failMessage}：` + error.message)
+  } catch (e) {
+    console.warn('加载案件列表失败', e)
   } finally {
-    isUploading.value = false
+    casesLoading.value = false
   }
-}
-
-const createCaseFromRecognition = () => {
-  if (!ocrResult.value) {
-    ElMessage.warning('请先完成文书识别')
-    return
-  }
-  const r = ocrResult.value
-  const prefill = {
-    source: 'ai_recognition',
-    caseReason: r.caseCause || '',
-    court: r.court || '',
-    courtCaseNumber: r.caseNumber || '',
-    caseName: r.caseCause
-      ? `${r.caseCause}${r.caseNature ? `（${r.caseNature}）` : ''}`
-      : r.caseNature || '新案件',
-    summary: [
-      r.documentType && `文书类型：${r.documentType}`,
-      r.parties && `当事人：${r.parties}`,
-      r.caseNature && `案件性质：${r.caseNature}`
-    ]
-      .filter(Boolean)
-      .join('\n'),
-    partiesText: r.parties || ''
-  }
-  sessionStorage.setItem(CASE_CREATE_PREFILL_KEY, JSON.stringify(prefill))
-  router.push({ path: '/case/create', query: { from: 'ai_recognition' } })
-}
-
-const clearRecognitionResult = () => {
-  ocrResult.value = null
-  uploadProgress.value = 0
-  uploadStatus.value = ''
-  uploadStatusText.value = ''
 }
 
 // 文书生成方法
 const generateDocument = async () => {
-  if (!docForm.templateType || !docForm.caseType || !docForm.keyInfo) {
-    ElMessage.warning('请填写完整的文书信息')
+  if (!docForm.caseId || !docForm.templateType || !docForm.caseType || !docForm.keyInfo?.trim()) {
+    ElMessage.warning('请选择关联案件并填写完整的文书信息')
     return
   }
 
   isGenerating.value = true
+  docProgressStart({ title: 'AI 文书生成', hint: AI_PROGRESS_HINTS.docGen })
   try {
+    const caseLabel = CASE_TYPE_LABELS[docForm.caseType] || docForm.caseType
     const response = await aiApi.generateDoc({
-      templateType: docForm.templateType,
-      caseType: docForm.caseType,
-      keyInfo: docForm.keyInfo
+      caseId: docForm.caseId,
+      documentType: docForm.templateType,
+      additionalContext: `案件类型：${caseLabel}\n\n关键信息：\n${docForm.keyInfo.trim()}`
     })
 
-    if (response.success) {
+    if (response.code === 200 || response.success) {
       generatedDoc.value = response.data
       ElNotification.success({
         title: '生成成功',
@@ -553,9 +517,10 @@ const generateDocument = async () => {
       throw new Error(response.message || '生成失败')
     }
   } catch (error) {
-    ElMessage.error('文书生成失败：' + error.message)
+    notifyAiError(error, { fallback: '文书生成失败' })
   } finally {
     isGenerating.value = false
+    docProgressStop()
   }
 }
 
@@ -592,15 +557,19 @@ const previewDocument = () => {
 }
 
 const downloadDoc = () => {
-  // 下载生成的文档
-  const blob = new Blob([generatedDoc.value], { type: 'text/plain;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `法律文书_${new Date().getTime()}.txt`
-  link.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success('文档下载成功')
+  if (downloadTxt(generatedDoc.value, `法律文书_${Date.now()}.txt`)) {
+    ElMessage.success('TXT 已下载')
+  }
+}
+
+const handleExportDocx = async () => {
+  const typeLabel =
+    documentTypeOptions.find((o) => o.value === docForm.templateType)?.label || '法律文书'
+  await downloadDocx({
+    content: generatedDoc.value,
+    title: typeLabel,
+    fileName: `${typeLabel}_${Date.now()}.docx`
+  })
 }
 
 const copyDoc = () => {
@@ -625,24 +594,34 @@ const sendMessage = async () => {
   await nextTick()
   scrollToBottom()
 
+  const pendingIdx = chatMessages.value.length
+  chatMessages.value.push({
+    role: 'assistant',
+    content: '',
+    pending: true,
+    time: new Date().toLocaleTimeString()
+  })
+
   isSending.value = true
+  qaProgressStart({ title: 'AI 法律问答', hint: AI_PROGRESS_HINTS.qa })
   try {
     const response = await aiApi.aiChat({ message: userInput })
 
-    const aiMessage = {
+    chatMessages.value[pendingIdx] = {
       role: 'assistant',
       content: response.data || response.message || '抱歉，AI服务暂时不可用',
+      pending: false,
       time: new Date().toLocaleTimeString()
     }
-
-    chatMessages.value.push(aiMessage)
 
     await nextTick()
     scrollToBottom()
   } catch (error) {
-    ElMessage.error('AI对话失败：' + error.message)
+    chatMessages.value.splice(pendingIdx, 1)
+    notifyAiError(error, { fallback: 'AI 对话失败' })
   } finally {
     isSending.value = false
+    qaProgressStop()
   }
 }
 
@@ -665,14 +644,19 @@ const scrollToBottom = () => {
 // 统计方法
 const loadStats = async () => {
   try {
-    const response = await aiApi.getAiLogs({ page: 0, size: 20 })
+    const response = await aiApi.getAiLogs({ page: 1, size: 20 })
     if (response.success) {
-      const logs = response.data.records || []
+      const logs = response.data?.content || response.data?.records || []
 
-      // 计算统计数据
-      stats.totalDocs = logs.filter(l => l.functionType === 'OCR').length
-      stats.totalGenerated = logs.filter(l => l.functionType === 'DOC_GEN').length
-      stats.totalQueries = logs.filter(l => l.functionType === 'QA').length
+      const isRecognition = (t) =>
+        t === 'OCR_RECOGNITION' || t === 'OCR' || t === 'DOCUMENT_RECOGNITION'
+      const isDocGen = (t) => t === 'DOCUMENT_GENERATION' || t === 'DOC_GEN'
+      const isQa = (t) =>
+        t === 'LEGAL_QA' || t === 'QA' || t === 'LEGAL_CHAT' || t === 'GENERAL_CHAT' || t === 'RAG'
+
+      stats.totalDocs = logs.filter((l) => isRecognition(l.functionType)).length
+      stats.totalGenerated = logs.filter((l) => isDocGen(l.functionType)).length
+      stats.totalQueries = logs.filter((l) => isQa(l.functionType)).length
       stats.totalTokens = logs.reduce((sum, log) => sum + (log.inputTokens || 0) + (log.outputTokens || 0), 0)
 
       usageLogs.value = logs.map(log => ({
@@ -685,13 +669,17 @@ const loadStats = async () => {
       }))
     }
   } catch (error) {
-    ElMessage.error('加载统计数据失败：' + error.message)
+    console.warn('加载统计数据失败', error)
   }
 }
 
 // 生命周期
 onMounted(() => {
-  // 默认加载统计数据
+  activeFeature.value = resolveActiveFeatureFromRoute()
+  if (wizardCaseId.value) {
+    docForm.caseId = Number(wizardCaseId.value) || wizardCaseId.value
+  }
+  loadCaseOptions()
   loadStats()
 })
 </script>
@@ -852,6 +840,23 @@ onMounted(() => {
   padding: 10px 15px;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.message-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: white;
+  padding: 10px 15px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.form-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .message-item.user .message-text {

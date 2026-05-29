@@ -1,8 +1,10 @@
 package com.lawfirm.controller;
 
 import com.lawfirm.dto.DocumentGenerateRequest;
+import com.lawfirm.dto.TextToDocxRequest;
 import com.lawfirm.entity.User;
 import com.lawfirm.service.DocumentGenerationService;
+import com.lawfirm.service.LegalDocumentDocxService;
 import com.lawfirm.enums.DocumentTemplateType;
 import com.lawfirm.util.DocumentTypeAliasResolver;
 import com.lawfirm.util.Result;
@@ -10,9 +12,14 @@ import com.lawfirm.util.SecurityUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 /**
  * AI文书生成控制器
@@ -25,6 +32,7 @@ import javax.validation.Valid;
 public class DocumentGenerationController {
 
     private final DocumentGenerationService documentGenerationService;
+    private final LegalDocumentDocxService legalDocumentDocxService;
     private final SecurityUtil securityUtil;
 
     /**
@@ -60,6 +68,27 @@ public class DocumentGenerationController {
                     request.getCaseId(), request.getDocumentType(), e.getMessage(), e);
             return Result.error("文书生成失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 将文书正文导出为 Word (.docx)
+     */
+    @PostMapping("/export-docx")
+    @PreAuthorize("hasAnyRole('ADMIN', 'LAWYER', 'ASSISTANT')")
+    public ResponseEntity<byte[]> exportDocx(@Valid @RequestBody TextToDocxRequest request) {
+        byte[] docx = legalDocumentDocxService.textToDocx(request.getTitle(), request.getContent());
+        String name = request.getFileName();
+        if (name == null || name.isBlank()) {
+            name = (request.getTitle() != null ? request.getTitle() : "法律文书") + ".docx";
+        } else if (!name.toLowerCase().endsWith(".docx")) {
+            name = name + ".docx";
+        }
+        String encoded = URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encoded)
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"))
+                .body(docx);
     }
 
     /**

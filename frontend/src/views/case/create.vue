@@ -3,8 +3,13 @@
     <PageHeader title="新建案件" :show-back="true" @back="$router.back()">
       <template #extra>
         <el-button @click="handleSaveDraft">保存草稿</el-button>
-        <el-button type="success" :loading="filing" @click="handleFiling">
-          确认立案
+        <el-button
+          type="success"
+          :loading="filing"
+          :disabled="establishmentDisabled"
+          @click="handleFiling"
+        >
+          确认建案
         </el-button>
         <el-button type="primary" :loading="submitting" @click="handleSubmit">
           提交案件
@@ -18,7 +23,7 @@
     <el-alert
       v-if="filingDraftBanner"
       class="filing-draft-banner"
-      type="info"
+      :type="filingBannerType"
       :closable="false"
       show-icon
       :title="filingDraftBanner"
@@ -1293,7 +1298,7 @@ import {
 } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import AIDocumentFill from '@/components/AIDocumentFill.vue'
-import { createCase, updateCase, checkDuplicate, getCaseDetail, comprehensiveConflictCheck } from '@/api/case'
+import { createCase, updateCase, checkDuplicate, getCaseDetail, comprehensiveConflictCheck, confirmCaseEstablishment } from '@/api/case'
 import { createApproval } from '@/api/approval'
 import { getIntakePrefill, attachCaseIntakeFromPending } from '@/api/caseIntake'
 import { searchClients } from '@/api/client'
@@ -1540,6 +1545,41 @@ const intakePendingId = computed(() => route.query.intakePendingId
   : null)
 const intakeAlreadyAttached = ref(false)
 const filingDraftBanner = ref('')
+const filingBannerType = ref('info')
+const canConfirmEstablishment = ref(true)
+const hasPendingFilingApproval = ref(false)
+const filingApprovalStatus = ref(null)
+
+const establishmentDisabled = computed(() =>
+  isEditMode.value && canConfirmEstablishment.value === false
+)
+
+const applyFilingMetaFromCase = (caseData) => {
+  canConfirmEstablishment.value = caseData.canConfirmEstablishment !== false
+  hasPendingFilingApproval.value = !!caseData.hasPendingFilingApproval
+  filingApprovalStatus.value = caseData.filingApprovalStatus || null
+
+  if (hasPendingFilingApproval.value) {
+    filingBannerType.value = 'warning'
+    filingDraftBanner.value = '立案审批进行中，审批通过后可点击「确认建案」。'
+    return
+  }
+  if (filingApprovalStatus.value === 'APPROVED') {
+    filingBannerType.value = 'success'
+    filingDraftBanner.value = '立案审批已通过，请核对当事人、收费方式等信息后点击「确认建案」。'
+    return
+  }
+  if (filingApprovalStatus.value === 'REJECTED') {
+    filingBannerType.value = 'error'
+    filingDraftBanner.value = '立案审批已驳回，请修改后重新提交审批。'
+    return
+  }
+  if ((caseData.summary || '').includes('[卷宗立案草稿]')) {
+    filingBannerType.value = 'info'
+    filingDraftBanner.value =
+      '本案件为立案审批自动生成的草稿，请核对必填项后提交审批或确认建案。'
+  }
+}
 
 const attachIntakeAfterCreate = async (newCaseId) => {
   if (!intakePendingId.value || !newCaseId || intakeAlreadyAttached.value) return
@@ -1554,6 +1594,46 @@ const attachIntakeAfterCreate = async (newCaseId) => {
     }
   } catch (e) {
     ElMessage.warning('案件已创建，卷宗挂接失败：' + (e.message || '请稍后在工作台重试'))
+  }
+}
+
+const parsePartiesFromRecognitionText = (text) => {
+  if (!text || typeof text !== 'string') return []
+  const trimmed = text.trim()
+  const vsMatch = trimmed.match(/^(.+?)(?:诉|起诉|与)(.+)$/)
+  if (vsMatch) {
+    return [
+      { type: '个人', attribute: '原告', name: vsMatch[1].trim(), phone: '', address: '' },
+      { type: '个人', attribute: '被告', name: vsMatch[2].trim(), phone: '', address: '' }
+    ]
+  }
+  return [{ type: '个人', attribute: '原告', name: trimmed, phone: '', address: '' }]
+}
+
+const applyAiRecognitionPrefill = () => {
+  if (isEditMode.value) return
+  const raw = sessionStorage.getItem('case_create_prefill')
+  if (!raw) return
+  try {
+    const p = JSON.parse(raw)
+    if (p.source !== 'ai_recognition') return
+    sessionStorage.removeItem('case_create_prefill')
+    if (!formData.caseType) formData.caseType = 'CIVIL'
+    if (!formData.procedure) formData.procedure = 'FIRST_INSTANCE'
+    if (p.caseName) formData.caseName = p.caseName
+    if (p.caseReason) formData.caseReason = p.caseReason
+    if (p.court) formData.court = p.court
+    if (p.courtCaseNumber) formData.courtCaseNumber = p.courtCaseNumber
+    if (p.summary) formData.summary = p.summary
+    if (Array.isArray(p.parties) && p.parties.length) {
+      formData.parties = p.parties
+    } else if (p.partiesText) {
+      const parties = parsePartiesFromRecognitionText(p.partiesText)
+      if (parties.length) formData.parties = parties
+    }
+    ElMessage.success('已从文书识别结果预填，请核对后保存')
+  } catch (e) {
+    console.warn('AI识别预填失败', e)
   }
 }
 
@@ -1653,65 +1733,68 @@ const { submitting, canSubmit, handleSubmit: handleFormSubmit } = useSubmitForm(
   }
 )
 
-// 确认立案功能
+// 确认正式建案（草稿 → 审理中，需利冲通过）
 const handleFiling = async () => {
   try {
-    // 验证表单
+    if (establishmentDisabled.value) {
+      ElMessage.warning(hasPendingFilingApproval.value
+        ? '立案审批进行中，请等待审批通过'
+        : '请先完成利冲审查或立案审批')
+      return
+    }
     const valid = await formRef.value?.validate()
     if (!valid) {
       ElMessage.warning('请先完善必填信息')
       return
     }
-
-    // 验证至少有一个当事人
     if (!formData.parties || formData.parties.length === 0) {
       ElMessage.warning('请至少添加一个当事人')
       return
     }
-
-    // 验证分配比例总和必须为100%
     const sum = percentageSum.value
     if (sum !== null && sum !== 100) {
       ElMessage.error(`分配比例总和必须为100%，当前为${sum}%，请检查A3.分配情况`)
       return
     }
+    if (formData.conflictCheckStatus === 'PENDING') {
+      ElMessage.warning('请先完成利益冲突审查')
+      return
+    }
+    if (formData.conflictCheckStatus === 'CONFLICT') {
+      ElMessage.warning('存在利益冲突，请申请豁免或修改当事人')
+      return
+    }
 
-    // 确认立案
     await ElMessageBox.confirm(
-      '确认立案后将正式创建案件，案件状态将变为"审理中"，是否继续？',
-      '确认立案',
-      {
-        confirmButtonText: '确认立案',
-        cancelButtonText: '取消',
-        type: 'success'
-      }
+      '确认建案后案件将进入「审理中」，并初始化阶段卷宗目录。是否继续？',
+      '确认建案',
+      { confirmButtonText: '确认建案', cancelButtonText: '取消', type: 'success' }
     )
 
     filing.value = true
-    const requestData = transformToRequest()
+    let targetId = isEditMode.value ? caseId.value : null
 
-    // 创建案件并自动立案
-    const response = await createCase(requestData)
+    if (!targetId) {
+      const draftPayload = { ...transformToRequest(), saveAsDraft: true, status: 'PENDING_FILING' }
+      const response = await createCase(draftPayload)
+      targetId = response.data?.id || response.data
+      if (!targetId) throw new Error('创建草稿失败')
+      await attachIntakeAfterCreate(targetId)
+    } else {
+      await updateCase(targetId, transformToRequest())
+    }
 
-    if (response.success || response.code === 200) {
-      const caseId = response.data?.id || response.data
-      await attachIntakeAfterCreate(caseId)
-
-      // 调用立案API
-      try {
-        await updateCase(caseId, { status: 'active' })
-        ElMessage.success('案件立案成功！')
-        router.push(caseId ? `/case/${caseId}` : '/case/list')
-      } catch (error) {
-        console.error('立案失败:', error)
-        ElMessage.warning('案件已创建，但立案状态更新失败，请手动修改')
-        router.push(`/case/${caseId}`)
-      }
+    const res = await confirmCaseEstablishment(targetId)
+    if (res.code === 200 || res.success) {
+      ElMessage.success('案件已正式建立')
+      router.push(`/case/${targetId}`)
+    } else {
+      ElMessage.error(res.message || '确认建案失败')
     }
   } catch (error) {
     if (error !== 'cancel') {
-      console.error('立案失败:', error)
-      ElMessage.error('立案失败: ' + (error.message || '未知错误'))
+      console.error('确认建案失败:', error)
+      ElMessage.error('确认建案失败: ' + (error.message || '未知错误'))
     }
   } finally {
     filing.value = false
@@ -2272,55 +2355,55 @@ const handleSubmit = () => {
   handleFormSubmit()
 }
 
-// 提交审批 - 保存案件后跳转到审批页面
+// 提交立案审批：保存草稿 + 发起 CASE_FILING
 const handleSubmitApproval = async () => {
   try {
     approving.value = true
-
-    // 验证表单
     await formRef.value?.validate()
-
-    // 验证至少有一个当事人
     if (!formData.parties || formData.parties.length === 0) {
       ElMessage.warning('请至少添加一个当事人')
       return
     }
-
-    // 验证分配比例总和必须为100%
     const sum = percentageSum.value
     if (sum !== null && sum !== 100) {
       ElMessage.error(`分配比例总和必须为100%，当前为${sum}%，请检查A3.分配情况`)
       return
     }
-
-    const requestData = transformToRequest()
-
-    // 提交案件
-    let caseId
-    if (isEditMode.value) {
-      const response = await updateCase(caseId.value, requestData)
-      caseId = caseId.value
-    } else {
-      const response = await createCase(requestData)
-      // 后端返回Result<CaseDetailVO>，数据在response.data中
-      const caseData = response.data || response
-      caseId = caseData.id || caseData.data?.id
-      if (!caseId) {
-        throw new Error('创建案件失败：未获取到案件ID')
-      }
+    if (formData.conflictCheckStatus === 'PENDING') {
+      ElMessage.warning('请先完成利益冲突审查')
+      return
+    }
+    if (formData.conflictCheckStatus === 'CONFLICT') {
+      ElMessage.warning('存在利益冲突，请申请豁免或修改当事人后再提交审批')
+      return
     }
 
-    // 跳转到审批页面，并带上案件ID参数
-    ElMessage.success('案件保存成功，正在跳转到审批页面...')
-    router.push({
-      path: '/approval',
-      query: {
-        action: 'create',
-        caseId: caseId,
-        caseName: formData.caseName || '未命名案件'
-      }
+    const requestData = { ...transformToRequest(), saveAsDraft: true, status: 'PENDING_FILING' }
+    let savedCaseId = isEditMode.value ? caseId.value : null
+
+    if (isEditMode.value) {
+      await updateCase(savedCaseId, requestData)
+    } else {
+      const response = await createCase(requestData)
+      const caseData = response.data || response
+      savedCaseId = caseData.id || caseData.data?.id
+      if (!savedCaseId) throw new Error('创建草稿失败：未获取到案件ID')
+      await attachIntakeAfterCreate(savedCaseId)
+    }
+
+    await createApproval({
+      approvalType: 'CASE_FILING',
+      caseId: savedCaseId,
+      title: `立案申请 - ${formData.caseName || '未命名案件'}`,
+      description: formData.summary || '请审批后确认建案'
     })
 
+    ElMessage.success('立案申请已提交，审批通过后可在此页确认建案')
+    hasPendingFilingApproval.value = true
+    canConfirmEstablishment.value = false
+    filingBannerType.value = 'warning'
+    filingDraftBanner.value = '立案审批进行中，审批通过后可点击「确认建案」。'
+    router.push(`/case/${savedCaseId}/edit`)
   } catch (error) {
     console.error('提交审批失败:', error)
     ElMessage.error('提交审批失败：' + (error.message || '未知错误'))
@@ -2331,6 +2414,7 @@ const handleSubmitApproval = async () => {
 
 onMounted(async () => {
   await applyIntakePrefill()
+  applyAiRecognitionPrefill()
 
   // 如果是编辑模式，加载案件数据
   if (isEditMode.value) {
@@ -2395,9 +2479,17 @@ onMounted(async () => {
         formData.archiveDate = caseData.archiveDate || null
       }
 
-      if ((formData.summary || '').includes('[卷宗立案草稿]')) {
-        filingDraftBanner.value =
-          '本案件为立案审批自动生成的草稿，请核对当事人、收费方式等必填项后保存或确认立案。'
+      if (caseData.conflictCheckStatus) {
+        formData.conflictCheckStatus = caseData.conflictCheckStatus
+      }
+      if (caseData.conflictWaiverApprovalId) {
+        formData.conflictWaiverApprovalId = caseData.conflictWaiverApprovalId
+      }
+
+      applyFilingMetaFromCase(caseData)
+
+      if (route.query.action === 'confirmEstablishment') {
+        ElMessage.success('立案审批已通过，请核对信息后确认建案')
       }
     } catch (error) {
       ElMessage.error('加载案件数据失败')

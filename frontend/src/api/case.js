@@ -34,6 +34,14 @@ export function createCase(data) {
   })
 }
 
+/** 确认正式建案（草稿/待立案 → 审理中） */
+export function confirmCaseEstablishment(id) {
+  return request({
+    url: `/cases/${id}/confirm-establishment`,
+    method: 'put'
+  })
+}
+
 // 批量导入金融不良资产案件
 export function importNpaCases(file) {
   const formData = new FormData()

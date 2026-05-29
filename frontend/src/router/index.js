@@ -22,7 +22,7 @@ const routes = [
         path: 'dashboard',
         name: 'Dashboard',
         component: () => import('@/views/dashboard/index.vue'),
-        meta: { title: '工作台', icon: '📊' }
+        meta: { title: '工作台', icon: '📊', keepAlive: true }
       },
       // 全局搜索
       {
@@ -36,7 +36,7 @@ const routes = [
         path: 'calendar',
         name: 'Calendar',
         component: () => import('@/views/calendar/index.vue'),
-        meta: { title: '日程', icon: '📅' }
+        meta: { title: '日程', icon: '📅', keepAlive: true }
       },
       // 案件管理
       {
@@ -49,7 +49,7 @@ const routes = [
             path: 'list',
             name: 'CaseList',
             component: () => import('@/views/case/list.vue'),
-            meta: { title: '案件列表' }
+            meta: { title: '案件列表', keepAlive: true }
           },
           {
             path: 'create',
@@ -133,7 +133,7 @@ const routes = [
             path: 'list',
             name: 'ClientList',
             component: () => import('@/views/client/index.vue'),
-            meta: { title: '客户列表' }
+            meta: { title: '客户列表', keepAlive: true }
           },
           {
             path: 'create',
@@ -174,7 +174,7 @@ const routes = [
         path: 'approval',
         name: 'Approval',
         component: () => import('@/views/approval/index.vue'),
-        meta: { title: '审批', icon: '✅' }
+        meta: { title: '审批', icon: '✅', keepAlive: true }
       },
       // 行政OA
       {

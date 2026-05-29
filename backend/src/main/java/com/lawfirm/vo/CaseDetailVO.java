@@ -73,6 +73,13 @@ public class CaseDetailVO {
     private BigDecimal firmPercentage;
     private String conflictCheckStatus;
     private Long conflictWaiverApprovalId;
+    private Long filingApprovalId;
+    /** 关联立案审批状态：PENDING / APPROVED / REJECTED */
+    private String filingApprovalStatus;
+    /** 是否存在待审批的立案申请 */
+    private Boolean hasPendingFilingApproval;
+    /** 是否可执行确认建案（前端按钮态） */
+    private Boolean canConfirmEstablishment;
 
     /**
      * 业务类型（根据案件类型的细分）

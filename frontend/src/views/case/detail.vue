@@ -105,8 +105,18 @@
     </el-tabs>
 
     <!-- Tab内容 -->
-    <div class="tab-content">
-      <router-view :case-data="caseDetail" @refresh="fetchCaseDetail" />
+    <div class="tab-content route-transition-host">
+      <router-view v-slot="{ Component, route: tabRoute }">
+        <transition name="route-soft" mode="default">
+          <component
+            :is="Component"
+            :key="tabRoute.name"
+            class="route-page-root"
+            :case-data="caseDetail"
+            @refresh="fetchCaseDetail"
+          />
+        </transition>
+      </router-view>
     </div>
   </div>
 </template>

@@ -92,8 +92,10 @@ class CaseFileIntakeServiceTest {
         when(embeddedAgentService.analyzeDocument(any(), eq(1L), eq(5L), any()))
                 .thenReturn(analysis);
         when(caseRepository.findById(5L)).thenReturn(Optional.of(caseEntity));
+        when(caseDocumentService.resolveStageDocumentFolder(eq(caseEntity), eq("答辩状")))
+                .thenReturn("答辩状");
         doReturn(docDto).when(caseDocumentService)
-                .uploadDocument(anyLong(), any(), anyString(), anyString(), anyLong());
+                .uploadDocument(eq(5L), any(), eq("答辩状"), eq("答辩状"), eq(1L));
         when(objectMapper.writeValueAsString(any())).thenReturn("{}");
         when(caseDocumentService.updateDocument(anyLong(), any())).thenReturn(docDto);
         when(caseTimelineService.createSystemTimeline(eq(5L), eq("FILE_INTAKE"), anyString()))

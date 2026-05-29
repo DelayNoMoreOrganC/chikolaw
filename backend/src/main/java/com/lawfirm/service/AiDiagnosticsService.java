@@ -1,9 +1,11 @@
 package com.lawfirm.service;
 
+import com.lawfirm.config.LawfirmAiProperties;
 import com.lawfirm.config.LLMProperties;
 import com.lawfirm.entity.AIConfig;
 import com.lawfirm.enums.AIModelUseCase;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
@@ -19,9 +21,16 @@ public class AiDiagnosticsService {
     private final AIModelRoutingService aimodelRoutingService;
     private final LLMProperties llmProperties;
     private final LLMApiService llmApiService;
+    private final LawfirmAiProperties lawfirmAiProperties;
+
+    @Value("${ai.ocr.provider:zhipu}")
+    private String ocrProvider;
 
     public Map<String, Object> snapshot() {
         Map<String, Object> root = new LinkedHashMap<>();
+        root.put("lawfirmAiMode", lawfirmAiProperties.getMode());
+        root.put("cloudGlm", lawfirmAiProperties.isCloudGlm());
+        root.put("ocrProvider", ocrProvider);
 
         Map<String, Object> routing = new LinkedHashMap<>();
         for (AIModelUseCase u : AIModelUseCase.values()) {

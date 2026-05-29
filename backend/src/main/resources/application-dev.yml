@@ -9,8 +9,9 @@ server:
 spring:
   application:
     name: lawfirm-backend
+  config:
+    import: optional:file:.env[.properties]
 
-  # H2文件数据库配置（持久化存储）
   datasource:
     driver-class-name: org.h2.Driver
     url: jdbc:h2:file:${LAWFIRM_H2_PATH:./data/lawfirm};MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
@@ -20,33 +21,36 @@ spring:
       maximum-pool-size: 20
       minimum-idle: 5
       connection-timeout: 30000
-      idle-time-timeout: 600000
+      idle-timeout: 600000
       max-lifetime: 1800000
 
-  # H2控制台配置（可选）
   h2:
     console:
       enabled: true
       path: /h2-console
 
+  devtools:
+    restart:
+      enabled: false
+
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.H2Dialect
-        format_sql: true
-        use_sql_comments: true
+        format_sql: false
+        use_sql_comments: false
         globally_quoted_identifiers: true
+        jdbc:
+          batch_size: 25
     open-in-view: false
 
-  # 禁用SQL脚本初始化，使用Hibernate自动创建
   sql:
     init:
       mode: never
 
-  # 完全禁用Redis（开发环境）
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
@@ -57,14 +61,12 @@ spring:
       max-file-size: 50MB
       max-request-size: 50MB
 
-# JWT配置（生产环境务必设置环境变量 JWT_SECRET）
 jwt:
   secret: ${JWT_SECRET:lawfirm-dev-jwt-secret-change-me}
-  expiration: 86400000  # 24小时 (毫秒)
+  expiration: 86400000
   header: Authorization
   prefix: Bearer
 
-# MinIO配置（开发环境可以注释）
 minio:
   endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
   accessKey: ${MINIO_ACCESS_KEY:minioadmin}
@@ -74,10 +76,9 @@ minio:
   writeTimeout: 60000
   readTimeout: 10000
 
-# 文件上传配置
 file:
   upload-path: ${LAWFIRM_UPLOAD_PATH:./uploads/}
-  max-size: 52428800  # 50MB
+  max-size: 52428800
   allowed-types:
     - image/jpeg
     - image/png
@@ -89,53 +90,66 @@ file:
     - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
     - text/plain
 
-# 登录失败锁定配置（开发环境关闭锁定，避免调试时账号被锁 30 分钟）
 login:
   max-attempts: 5
-  lock-duration: 1800000  # 30分钟 (毫秒)
+  lock-duration: 1800000
   lock-enabled: false
 
-# AI配置
+# v2.2 纯 GLM 云端（见 backend/.env）
+lawfirm:
+  ai:
+    mode: cloud-glm
+
+# 纯线上 AI：智谱 GLM Coding Plan（见 backend/.env）
 ai:
   ocr:
-    provider: deepseek
+    enabled: true
+    provider: zhipu
     pdf-vision-max-pages: 5
     pdf-vision-dpi: 120
-  deepseek:
-    api-key: your-deepseek-api-key
-    base-url: https://api.deepseek.com/v1
-    model: deepseek-chat
-    max-tokens: 4000
-    temperature: 0.7
 
-# 本地大模型（LM Studio）推理较慢，适当拉长超时
 llm:
   timeout: 180000
-  lmstudio:
-    base-url: http://127.0.0.1:1234
+  connect-timeout: 30000
+  retry: 2
+  zhipu:
+    api-key: ${ZHIPU_API_KEY:${GLM_CODING_API_KEY:}}
+    base-url: https://open.bigmodel.cn/api/coding/paas/v4
+    chat-model: ${GLM_CHAT_MODEL:glm-4.7}
+    vision-model: ${GLM_VISION_MODEL:glm-4.6v}
+    max-tokens: 8192
+    temperature: 0.3
   fallback:
-    enabled: true
-    provider: deepseek
+    enabled: false
+    provider: zhipu
   routing:
-    legal-chat: lmstudio
-    rag: lmstudio
-    document: lmstudio
-    general-chat: lmstudio
-    extract: lmstudio
-    document-recognition-extract: lmstudio
-    legacy-document: lmstudio
+    legal-chat: zhipu
+    rag: zhipu
+    document: zhipu
+    general-chat: zhipu
+    extract: zhipu
+    document-recognition-extract: zhipu
+    legacy-document: zhipu
 
-# 日志配置
+agent:
+  runtime:
+    provider: builtin
+
+qdrant:
+  enabled: false
+
+case-search:
+  semantic:
+    enabled: false
+
 logging:
   level:
     root: INFO
-    com.lawfirm: DEBUG
-    org.springframework.security: DEBUG
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    com.lawfirm: INFO
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN
   pattern:
     console: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n'
-    file: '%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n'
   file:
     name: logs/lawfirm-backend.log
     max-size: 100MB

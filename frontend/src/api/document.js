@@ -1,7 +1,7 @@
 import request from '@/utils/request'
 
-// 获取全部文档（跨案件聚合视图）
-export function getAllDocuments(params) {
+/** 文档中心分页列表（含 stats） */
+export function getDocumentCenterList(params) {
   return request({
     url: '/documents',
     method: 'get',
@@ -9,7 +9,15 @@ export function getAllDocuments(params) {
   })
 }
 
-// 获取文档详情
+/** 兼容：全量列表 */
+export function getAllDocuments(params) {
+  return request({
+    url: '/documents/all',
+    method: 'get',
+    params
+  })
+}
+
 export function getDocument(id) {
   return request({
     url: `/documents/${id}`,
@@ -17,19 +25,9 @@ export function getDocument(id) {
   })
 }
 
-// 下载文档（需要后端实现下载接口）
-export function downloadDocument(id) {
+export function deleteCaseDocument(caseId, docId) {
   return request({
-    url: `/documents/${id}/download`,
-    method: 'get',
-    responseType: 'blob'
-  })
-}
-
-// 删除文档（需要后端实现）
-export function deleteDocument(id) {
-  return request({
-    url: `/documents/${id}`,
+    url: `/cases/${caseId}/documents/${docId}`,
     method: 'delete'
   })
 }

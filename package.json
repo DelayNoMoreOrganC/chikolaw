@@ -4,6 +4,11 @@
   "scripts": {
     "test": "npm run test:frontend && npm run test:backend",
     "test:frontend": "cd frontend && npm run test",
-    "test:backend": "cd backend && mvn -q test"
+    "test:backend": "cd backend && mvn -q test",
+    "test:e2e": "cd frontend && npm run test:e2e:api",
+    "verify:v2.2": "powershell -ExecutionPolicy Bypass -File scripts/verify-v2.2.ps1",
+    "build:backend": "cd backend && mvn -q -DskipTests package",
+    "dev:frontend": "cd frontend && npm run dev",
+    "start:backend": "cd backend && java -jar target/lawfirm-backend-2.0.0.jar --spring.profiles.active=dev"
   }
 }

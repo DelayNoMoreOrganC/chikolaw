@@ -3,9 +3,19 @@
     <div class="panel-header">
       <div class="title-block">
         <h2>卷宗智能录入</h2>
-        <p class="subtitle">传入文件 → AI 分析 → 登记备注 → 归入已有案件卷宗（不自动建案）</p>
+        <p class="subtitle">{{ intentSubtitle }}</p>
       </div>
       <el-tag :type="agentTagType" size="small">{{ agentStatusText }}</el-tag>
+    </div>
+
+    <div class="intent-row">
+      <span class="intent-label">录入意图</span>
+      <el-radio-group v-model="intakeIntent" size="small">
+        <el-radio-button label="ATTACH">归入卷宗</el-radio-button>
+        <el-radio-button label="PREFILL">预填草稿</el-radio-button>
+        <el-radio-button label="TODO">创建待办</el-radio-button>
+        <el-radio-button label="RECOGNIZE">仅识别</el-radio-button>
+      </el-radio-group>
     </div>
 
     <el-row :gutter="16" class="panel-body">
@@ -13,9 +23,12 @@
         <el-upload
           class="intake-upload"
           drag
+          action="#"
           :show-file-list="false"
+          :auto-upload="true"
           :http-request="handleUpload"
           :disabled="processing"
+          accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
         >
           <el-icon class="upload-icon"><UploadFilled /></el-icon>
           <div class="el-upload__text">
@@ -23,7 +36,7 @@
           </div>
           <template #tip>
             <div class="el-upload__tip">
-              支持 PDF、图片、Word(docx)、TXT 等（≤50MB）。引擎：内置 AI / 本机 OpenClaw / Hermes（按后端配置自动选择）
+              支持 PDF、图片、Word(docx)、TXT 等（≤50MB）。引擎：智谱 GLM Coding Plan 线上视觉+抽取
             </div>
           </template>
         </el-upload>
@@ -35,7 +48,7 @@
 
       <el-col :xs="24" :md="10">
         <el-form label-position="top" class="intake-form">
-          <el-form-item label="关联案件（建议先选或依赖案号自动匹配）">
+          <el-form-item v-if="intakeIntent === 'ATTACH'" label="关联案件（建议先选或依赖案号自动匹配）">
             <el-select
               v-model="selectedCaseId"
               filterable
@@ -69,7 +82,73 @@
     </el-row>
 
     <el-alert
-      v-if="lastResult && lastResult.status === 'NEEDS_CASE'"
+      v-if="lastResult && lastResult.status === 'FAILED'"
+      type="error"
+      :closable="false"
+      class="result-alert"
+      show-icon
+    >
+      <template #title>分析失败</template>
+      <p>{{ lastResult.message || '请检查智谱 API 配置或稍后重试' }}</p>
+      <p v-if="lastResult.recognition?.ocrText" class="failed-hint">
+        {{ lastResult.recognition.ocrText }}
+      </p>
+    </el-alert>
+
+    <el-card
+      v-if="showRecognitionCard"
+      class="result-card recognition-card"
+      shadow="never"
+    >
+      <template #header>
+        <span>AI 识别结果</span>
+      </template>
+      <div class="result-grid">
+        <div v-if="lastResult.recognition?.documentType">
+          <span class="label">文书类型：</span>{{ lastResult.recognition.documentType }}
+        </div>
+        <div v-if="lastResult.recognition?.caseNumber">
+          <span class="label">案号：</span>{{ lastResult.recognition.caseNumber }}
+        </div>
+        <div v-if="lastResult.recognition?.caseReason">
+          <span class="label">案由：</span>{{ lastResult.recognition.caseReason }}
+        </div>
+        <div v-if="lastResult.recognition?.plaintiffName || lastResult.recognition?.defendantName">
+          <span class="label">当事人：</span>
+          {{ lastResult.recognition.plaintiffName || '—' }} / {{ lastResult.recognition.defendantName || '—' }}
+        </div>
+        <div v-if="lastResult.recognition?.deadline || lastResult.recognition?.hearingDate">
+          <span class="label">关键日期：</span>
+          {{ lastResult.recognition.deadline || lastResult.recognition.hearingDate }}
+        </div>
+      </div>
+      <p v-if="lastResult.recognition?.ocrText" class="registration-note ocr-preview">
+        {{ lastResult.recognition.ocrText.slice(0, 500) }}{{ lastResult.recognition.ocrText.length > 500 ? '…' : '' }}
+      </p>
+      <div class="result-actions">
+        <el-button
+          v-if="intakeIntent === 'PREFILL' && lastResult.pendingId"
+          type="primary"
+          @click="goPrefillCreate"
+        >
+          去预填新建案件
+        </el-button>
+        <el-button
+          v-if="intakeIntent === 'TODO'"
+          type="primary"
+          :loading="todoCreating"
+          @click="createTodoFromRecognition"
+        >
+          创建待办
+        </el-button>
+        <el-button v-if="intakeIntent === 'ATTACH' && lastResult.status === 'NEEDS_CASE'" @click="openFilingDialog">
+          发起立案申请
+        </el-button>
+      </div>
+    </el-card>
+
+    <el-alert
+      v-if="intakeIntent === 'ATTACH' && lastResult && lastResult.status === 'NEEDS_CASE'"
       type="warning"
       :closable="false"
       class="result-alert"
@@ -91,7 +170,7 @@
       </div>
     </el-alert>
 
-    <el-card v-if="lastResult && lastResult.status === 'SUCCESS'" class="result-card" shadow="never">
+    <el-card v-if="intakeIntent === 'ATTACH' && lastResult && lastResult.status === 'SUCCESS'" class="result-card" shadow="never">
       <template #header>
         <span>已归入卷宗</span>
       </template>
@@ -150,8 +229,18 @@ import {
   searchCasesForIntake
 } from '@/api/caseIntake'
 import { getAgentRuntimeStatus } from '@/api/agent'
+import { createTodo } from '@/api/todo'
+import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
+const userStore = useUserStore()
+
+const INTENT_SUBTITLES = {
+  ATTACH: '传入文件 → AI 分析 → 登记备注 → 归入已有案件卷宗',
+  PREFILL: '传入文件 → AI 识别 → 预填新建案件草稿（不自动建案）',
+  TODO: '传入文件 → AI 识别 → 根据识别结果创建待办提醒',
+  RECOGNIZE: '传入文件 → AI 识别 → 仅展示识别结果，不强制归档'
+}
 
 const processing = ref(false)
 const remark = ref('')
@@ -165,12 +254,24 @@ const filingDialogVisible = ref(false)
 const filingTitle = ref('')
 const filingContent = ref('')
 const filingSubmitting = ref(false)
+const intakeIntent = ref('ATTACH')
+const todoCreating = ref(false)
+
+const intentSubtitle = computed(() => INTENT_SUBTITLES[intakeIntent.value] || INTENT_SUBTITLES.ATTACH)
+
+const showRecognitionCard = computed(() => {
+  if (!lastResult.value?.recognition) return false
+  if (lastResult.value.status === 'FAILED') return false
+  if (intakeIntent.value === 'ATTACH' && lastResult.value.status === 'SUCCESS') return false
+  return ['PREFILL', 'TODO', 'RECOGNIZE'].includes(intakeIntent.value)
+    || (intakeIntent.value === 'ATTACH' && lastResult.value.status === 'NEEDS_CASE')
+})
 
 const agentStatusText = computed(() => {
   const r = agentRuntime.value
   if (!r) return 'Agent 检测中…'
   const active = r.activeProvider || 'builtin'
-  const labels = { builtin: '内置 AI', openclaw: 'OpenClaw', hermes: 'Hermes' }
+  const labels = { builtin: '智谱 GLM', zhipu: '智谱 GLM', glm: '智谱 GLM', openclaw: 'OpenClaw', hermes: 'Hermes' }
   return `当前：${labels[active] || active}`
 })
 
@@ -213,9 +314,47 @@ const remoteSearchCases = async (q) => {
   }
 }
 
-const handleUpload = async ({ file }) => {
+const handleIntentAfterUpload = async (data) => {
+  if (intakeIntent.value === 'PREFILL') {
+    if (data.pendingId) {
+      ElMessage.success('识别完成，正在跳转预填新建案件…')
+      router.push({ path: '/case/create', query: { intakePendingId: data.pendingId } })
+      return
+    }
+    ElMessage.info('识别完成，可查看结果后手动预填')
+    return
+  }
+  if (intakeIntent.value === 'TODO') {
+    await createTodoFromRecognition()
+    return
+  }
+  if (intakeIntent.value === 'RECOGNIZE') {
+    ElMessage.success('识别完成')
+    return
+  }
+  // ATTACH — default messaging
+  if (data.status === 'SUCCESS') {
+    ElMessage.success(data.message || '已归入案件卷宗')
+    pendingFile.value = null
+  } else if (data.status === 'NEEDS_CASE') {
+    const incomplete = data?.recognition?.ocrText?.includes('分析未完成')
+    ElMessage.warning(
+      incomplete
+        ? 'AI 识别未完成，请检查 backend/.env 中的 ZHIPU_API_KEY 或重试'
+        : '未匹配到案件，请选择案件或发起立案申请'
+    )
+  }
+}
+
+const handleUpload = async (options) => {
+  const file = options.file
+  if (!file) {
+    options.onError?.(new Error('未选择文件'))
+    return
+  }
   if (file.size > 50 * 1024 * 1024) {
     ElMessage.error('文件不能超过 50MB')
+    options.onError?.(new Error('文件过大'))
     return
   }
   pendingFile.value = file
@@ -223,7 +362,7 @@ const handleUpload = async ({ file }) => {
   lastResult.value = null
   try {
     const res = await processCaseIntake(file, {
-      caseId: selectedCaseId.value,
+      caseId: intakeIntent.value === 'ATTACH' ? selectedCaseId.value : null,
       remark: remark.value
     })
     if (res.code === 200 || res.success) {
@@ -231,20 +370,24 @@ const handleUpload = async ({ file }) => {
       if (res.data?.caseId) {
         selectedCaseId.value = res.data.caseId
       }
-      if (res.data?.status === 'SUCCESS') {
-        ElMessage.success(res.data.message || '已归入案件卷宗')
-        pendingFile.value = null
-      } else if (res.data?.status === 'NEEDS_CASE') {
-        if (res.data.caseCandidates?.length) {
-          caseOptions.value = res.data.caseCandidates
-        }
-        ElMessage.warning('未匹配到案件，请选择案件或发起立案申请')
+      if (res.data?.status === 'FAILED') {
+        ElMessage.error(res.data.message || '录入失败')
+      } else {
+        await handleIntentAfterUpload(res.data)
       }
+      if (res.data?.caseCandidates?.length) {
+        caseOptions.value = res.data.caseCandidates
+      }
+      options.onSuccess?.(res)
     } else {
-      ElMessage.error(res.message || '录入失败')
+      const err = new Error(res.message || '录入失败')
+      ElMessage.error(err.message)
+      options.onError?.(err)
     }
   } catch (e) {
-    ElMessage.error(e.message || '录入失败')
+    const msg = e?.response?.data?.message || e.message || '录入失败'
+    ElMessage.error(msg)
+    options.onError?.(e instanceof Error ? e : new Error(msg))
   } finally {
     processing.value = false
   }
@@ -271,6 +414,61 @@ const confirmAttach = async () => {
   } finally {
     processing.value = false
   }
+}
+
+const buildTodoPayload = () => {
+  const rec = lastResult.value?.recognition || {}
+  const docType = rec.documentType || '文书'
+  const caseNo = rec.caseNumber ? `（${rec.caseNumber}）` : ''
+  const title = `跟进${docType}${caseNo}`.slice(0, 80)
+  const lines = []
+  if (rec.caseReason) lines.push(`案由：${rec.caseReason}`)
+  if (rec.plaintiffName || rec.defendantName) {
+    lines.push(`当事人：${rec.plaintiffName || '—'} / ${rec.defendantName || '—'}`)
+  }
+  if (lastResult.value?.registrationNote) lines.push(lastResult.value.registrationNote)
+  if (remark.value) lines.push(`备注：${remark.value}`)
+  return {
+    title,
+    description: lines.join('\n') || rec.ocrText?.slice(0, 500) || '',
+    deadline: rec.deadline || rec.hearingDate || null,
+    caseId: lastResult.value?.caseId || selectedCaseId.value || null,
+    assigneeId: userStore.userId
+  }
+}
+
+const createTodoFromRecognition = async () => {
+  if (!lastResult.value?.recognition) {
+    ElMessage.warning('暂无识别结果，请先上传文件')
+    return
+  }
+  if (!userStore.userId) {
+    ElMessage.warning('请先登录后再创建待办')
+    return
+  }
+  todoCreating.value = true
+  try {
+    const payload = buildTodoPayload()
+    const res = await createTodo(payload)
+    if (res.code === 200 || res.success) {
+      ElMessage.success('待办已创建')
+    } else {
+      ElMessage.error(res.message || '创建待办失败')
+    }
+  } catch (e) {
+    ElMessage.error(e.message || '创建待办失败')
+  } finally {
+    todoCreating.value = false
+  }
+}
+
+const goPrefillCreate = () => {
+  const pendingId = lastResult.value?.pendingId
+  if (!pendingId) {
+    ElMessage.warning('缺少暂存编号，请重新上传文件')
+    return
+  }
+  router.push({ path: '/case/create', query: { intakePendingId: pendingId } })
 }
 
 const buildFilingDefaults = () => {
@@ -341,7 +539,7 @@ const goApproval = () => router.push('/approval')
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .panel-header h2 {
   margin: 0 0 4px;
@@ -352,6 +550,18 @@ const goApproval = () => router.push('/approval')
   margin: 0;
   font-size: 13px;
   color: #597ef7;
+}
+.intent-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.intent-label {
+  font-size: 13px;
+  color: #595959;
+  font-weight: 500;
 }
 .intake-upload :deep(.el-upload-dragger) {
   padding: 28px 16px;
@@ -385,6 +595,10 @@ const goApproval = () => router.push('/approval')
 .result-card {
   margin-top: 16px;
 }
+.recognition-card :deep(.el-card__header) {
+  padding: 12px 16px;
+  font-weight: 600;
+}
 .result-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -402,8 +616,13 @@ const goApproval = () => router.push('/approval')
   font-size: 13px;
   white-space: pre-wrap;
 }
+.ocr-preview {
+  max-height: 120px;
+  overflow: hidden;
+}
 .result-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 </style>

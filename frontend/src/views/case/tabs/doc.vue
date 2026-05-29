@@ -190,42 +190,6 @@
       </div>
     </div>
 
-    <!-- AI识别对话框 -->
-    <el-dialog v-model="aiDialogVisible" :title="AI_RECOGNITION.dialogTitle" width="600px">
-      <el-upload
-        class="upload-demo"
-        drag
-        action="#"
-        :auto-upload="false"
-        :on-change="handleAIFileChange"
-      >
-        <el-icon class="el-icon--upload"><Upload /></el-icon>
-        <div class="el-upload__text">
-          将案件文档拖到此处，或<em>点击上传</em>
-        </div>
-        <template #tip>
-          <div class="el-upload__tip">
-            支持 jpg/png/pdf 格式，AI将自动识别并分类文档
-          </div>
-        </template>
-      </el-upload>
-
-      <div v-if="aiResult" class="ai-result">
-        <h4>识别结果</h4>
-        <el-descriptions :column="1" border>
-          <el-descriptions-item label="文档类型">
-            {{ aiResult.docType }}
-          </el-descriptions-item>
-          <el-descriptions-item label="建议分类">
-            {{ aiResult.suggestedFolder }}
-          </el-descriptions-item>
-          <el-descriptions-item label="识别内容">
-            {{ aiResult.content }}
-          </el-descriptions-item>
-        </el-descriptions>
-      </div>
-    </el-dialog>
-
     <!-- AI文书生成对话框 -->
     <el-dialog v-model="aiDocDialogVisible" :title="AI_DOCUMENT_GEN.dialogTitle" width="700px">
       <el-form :model="aiDocForm" label-width="100px">
@@ -290,68 +254,46 @@
             <el-icon><DocumentCopy /></el-icon>
             复制内容
           </el-button>
-          <el-button type="primary" @click="handleSaveDoc">
+          <el-button type="success" @click="handleSaveDoc">
             <el-icon><Download /></el-icon>
-            保存为文件
+            下载 TXT
+          </el-button>
+          <el-button type="primary" :loading="docxExporting" @click="handleExportDocx">
+            <el-icon><Download /></el-icon>
+            导出 Word
           </el-button>
         </span>
       </template>
     </el-dialog>
 
-    <!-- 文件预览对话框 -->
-    <el-dialog
-      v-model="previewDialogVisible"
-      title="文件预览"
-      width="900px"
-      destroy-on-close
-      @closed="revokePreviewBlob"
-    >
-      <div v-if="previewFile" v-loading="previewLoading" class="preview-container">
-        <img
-          v-if="previewMode === 'image' && previewBlobUrl"
-          :src="previewBlobUrl"
-          style="max-width: 100%; max-height: 70vh"
-          alt="预览"
-        />
-        <iframe
-          v-else-if="previewMode === 'pdf' && previewBlobUrl"
-          :src="previewBlobUrl"
-          class="preview-pdf-frame"
-          title="PDF 预览"
-        />
-        <iframe
-          v-else-if="previewMode === 'html' && previewHtmlContent"
-          :srcdoc="previewHtmlContent"
-          class="preview-html-frame"
-          sandbox=""
-          title="Office 预览"
-        />
-      </div>
-    </el-dialog>
+    <DocumentPreviewDialog ref="previewRef" />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 // 监听案件数据变化，加载文档数据
 watch(() => props.caseData.id, (newId) => {
   if (newId) {
-    loadDocuments()
+    fetchDocuments()
   }
 }, { immediate: true })
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { generateDoc, recognizeLegalDocument } from '@/api/ai'
-import { AI_RECOGNITION, AI_DOCUMENT_GEN, getDocumentTypeOptions } from '@/config/ai-terminology'
+import { generateDoc } from '@/api/ai'
+import { AI_RECOGNITION, AI_DOCUMENT_GEN, getDocumentTypeOptions, getDocumentTypeLabel } from '@/config/ai-terminology'
+import { useDocumentExport } from '@/composables/useDocumentExport'
+import { buildAiErrorHint, formatAiError } from '@/utils/aiError'
 import {
   getCaseDocuments,
   uploadCaseDocument,
   deleteCaseDocument,
   moveCaseDocument,
-  previewCaseDocument,
-  previewCaseDocumentHtml,
-  downloadCaseDocument
+  updateCaseDocument
 } from '@/api/case'
+import { getStagesByCaseType } from '@/config/case-lifecycle'
+import { useDocumentPreview } from '@/composables/useDocumentPreview'
 import {
   Plus, Upload, DocumentAdd, MagicStick, Search, FolderOpened, Folder,
   ArrowDown, Edit, DocumentCopy, Download
@@ -365,13 +307,13 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['refresh'])
+const router = useRouter()
+const { exporting: docxExporting, downloadDocx, downloadTxt } = useDocumentExport()
 
 const loading = ref(false)
 const treeRef = ref(null)
 const searchKeyword = ref('')
 const selectedFiles = ref([])
-const aiDialogVisible = ref(false)
-const aiResult = ref(null)
 const currentFolder = ref(null)
 const aiDocDialogVisible = ref(false)
 const aiResultDialogVisible = ref(false)
@@ -382,132 +324,91 @@ const aiDocForm = ref({
   customPrompt: '',
   additionalContext: ''
 })
-const previewDialogVisible = ref(false)
-const previewFile = ref(null)
-const previewBlobUrl = ref('')
-const previewHtmlContent = ref('')
-const previewMode = ref('')
-const previewLoading = ref(false)
-
-const OFFICE_PREVIEW_EXTS = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']
+const previewRef = ref(null)
+const { downloadFile: downloadDocument } = useDocumentPreview()
 const documentTypeOptions = getDocumentTypeOptions(true)
+
+const DOC_FOLDER_NAMES = [
+  '起诉状', '答辩状', '原告证据', '被告证据', '法院文书', '代理词', '判决书', '其他'
+]
+
+const mapDocToTreeFile = (doc) => ({
+  id: doc.id,
+  label: doc.documentName,
+  type: 'file',
+  data: doc
+})
+
+const buildFlatTypeTree = (docs) => DOC_FOLDER_NAMES.map((name) => ({
+  id: `type-${name}`,
+  label: name,
+  type: 'folder',
+  folderPath: name,
+  children: docs
+    .filter((doc) => {
+      const fp = doc.folderPath || ''
+      if (fp.includes('/')) {
+        return fp.endsWith(`/${name}`) || fp === name
+      }
+      return (doc.documentType || '其他') === name
+    })
+    .map(mapDocToTreeFile)
+}))
+
+// 文档目录树（阶段 × 文书类型，或回退到扁平类型目录）
+const docTree = computed(() => {
+  const docs = documents.value
+  const hasStagePaths = docs.some((d) => d.folderPath?.includes('/'))
+  const stageInitialized = props.caseData?.stageFoldersInitialized
+
+  if (hasStagePaths || stageInitialized) {
+    const stageMap = new Map()
+    const caseType = props.caseData?.caseType || 'CIVIL'
+    getStagesByCaseType(caseType).forEach((s) => {
+      const typeMap = new Map()
+      DOC_FOLDER_NAMES.forEach((t) => typeMap.set(t, []))
+      stageMap.set(s.label, typeMap)
+    })
+
+    docs.forEach((doc) => {
+      const fp = doc.folderPath || ''
+      let stage = props.caseData?.currentStage || '其他'
+      let docType = doc.documentType || '其他'
+      if (fp.includes('/')) {
+        const parts = fp.split('/')
+        stage = parts[0]
+        docType = parts.slice(1).join('/') || docType
+      }
+      if (!stageMap.has(stage)) {
+        stageMap.set(stage, new Map())
+      }
+      const typeMap = stageMap.get(stage)
+      if (!typeMap.has(docType)) {
+        typeMap.set(docType, [])
+      }
+      typeMap.get(docType).push(doc)
+    })
+
+    return Array.from(stageMap.entries()).map(([stage, typeMap]) => ({
+      id: `stage:${stage}`,
+      label: stage,
+      type: 'folder',
+      children: Array.from(typeMap.entries()).map(([docType, typeDocs]) => ({
+        id: `${stage}/${docType}`,
+        label: docType,
+        type: 'folder',
+        folderPath: `${stage}/${docType}`,
+        children: typeDocs.map(mapDocToTreeFile)
+      }))
+    }))
+  }
+
+  return buildFlatTypeTree(docs)
+})
 
 // 文档列表（从API获取）
 const documents = ref([])
 const currentCaseId = computed(() => props.caseData?.id)
-
-// 文档目录树（根据实际文档数据生成）
-const docTree = computed(() => {
-  const tree = [
-    {
-      id: 'folder-1',
-      label: '起诉状',
-      type: 'folder',
-      children: documents.value
-        .filter(doc => doc.documentType === '起诉状')
-        .map(doc => ({
-          id: doc.id,
-          label: doc.documentName,
-          type: 'file',
-          data: doc
-        }))
-    },
-    {
-      id: 'folder-2',
-      label: '答辩状',
-      type: 'folder',
-      children: documents.value
-        .filter(doc => doc.documentType === '答辩状')
-        .map(doc => ({
-          id: doc.id,
-          label: doc.documentName,
-          type: 'file',
-          data: doc
-        }))
-    },
-    {
-      id: 'folder-3',
-      label: '原告证据',
-      type: 'folder',
-      children: documents.value
-        .filter(doc => doc.documentType === '原告证据')
-        .map(doc => ({
-          id: doc.id,
-          label: doc.documentName,
-          type: 'file',
-          data: doc
-        }))
-    },
-    {
-      id: 'folder-4',
-      label: '被告证据',
-      type: 'folder',
-      children: documents.value
-        .filter(doc => doc.documentType === '被告证据')
-        .map(doc => ({
-          id: doc.id,
-          label: doc.documentName,
-          type: 'file',
-          data: doc
-        }))
-    },
-    {
-      id: 'folder-5',
-      label: '法院文书',
-      type: 'folder',
-      children: documents.value
-        .filter(doc => doc.documentType === '法院文书')
-        .map(doc => ({
-          id: doc.id,
-          label: doc.documentName,
-          type: 'file',
-          data: doc
-        }))
-    },
-    {
-      id: 'folder-6',
-      label: '代理词',
-      type: 'folder',
-      children: documents.value
-        .filter(doc => doc.documentType === '代理词')
-        .map(doc => ({
-          id: doc.id,
-          label: doc.documentName,
-          type: 'file',
-          data: doc
-        }))
-    },
-    {
-      id: 'folder-7',
-      label: '判决书',
-      type: 'folder',
-      children: documents.value
-        .filter(doc => doc.documentType === '判决书')
-        .map(doc => ({
-          id: doc.id,
-          label: doc.documentName,
-          type: 'file',
-          data: doc
-        }))
-    },
-    {
-      id: 'folder-8',
-      label: '其他',
-      type: 'folder',
-      children: documents.value
-        .filter(doc => doc.documentType === '其他')
-        .map(doc => ({
-          id: doc.id,
-          label: doc.documentName,
-          type: 'file',
-          data: doc
-        }))
-    }
-  ]
-  return tree
-})
-
-// 获取案件文档列表
 const fetchDocuments = async () => {
   if (!currentCaseId.value) return
 
@@ -541,8 +442,13 @@ const handleFileUpload = async (file) => {
     loading.value = true
     const formData = new FormData()
     formData.append('file', file.raw)
-    formData.append('documentType', '其他') // 默认类型，实际应该让用户选择
-    formData.append('folderPath', currentFolder.value?.id || '')
+    const folderPath = currentFolder.value?.folderPath
+      || (currentFolder.value?.id?.includes('/') ? currentFolder.value.id : '')
+    const docType = folderPath.includes('/')
+      ? folderPath.split('/').pop()
+      : (currentFolder.value?.label || '其他')
+    formData.append('documentType', docType)
+    formData.append('folderPath', folderPath && !folderPath.startsWith('stage:') ? folderPath : '')
 
     const response = await uploadCaseDocument(currentCaseId.value, formData)
     if (response.code === 200) {
@@ -580,58 +486,6 @@ const handleDeleteFile = async (file) => {
   }
 }
 
-// 继续保留原有的静态数据作为fallback（如果API调用失败）
-const docTreeOld = ref([
-  {
-    id: '1',
-    label: '起诉状',
-    type: 'folder',
-    children: []
-  },
-  {
-    id: '2',
-    label: '答辩状',
-    type: 'folder',
-    children: []
-  },
-  {
-    id: '3',
-    label: '原告证据',
-    type: 'folder',
-    children: []
-  },
-  {
-    id: '4',
-    label: '被告证据',
-    type: 'folder',
-    children: []
-  },
-  {
-    id: '5',
-    label: '法院文书',
-    type: 'folder',
-    children: []
-  },
-  {
-    id: '6',
-    label: '代理词',
-    type: 'folder',
-    children: []
-  },
-  {
-    id: '7',
-    label: '判决书',
-    type: 'folder',
-    children: []
-  },
-  {
-    id: '8',
-    label: '其他',
-    type: 'folder',
-    children: []
-  }
-])
-
 const treeProps = {
   children: 'children',
   label: 'label'
@@ -644,9 +498,38 @@ const breadcrumbs = computed(() => {
 })
 
 // 文件列表
-// 文件列表（从documents映射）
+// 文件列表（从 documents 映射，支持文件夹与关键词过滤）
 const fileList = computed(() => {
-  return documents.value.map(doc => {
+  let docs = documents.value
+  if (currentFolder.value?.type === 'folder') {
+    const folderId = currentFolder.value.id
+    if (folderId.startsWith('stage:')) {
+      const stage = folderId.slice(6)
+      docs = docs.filter((d) => d.folderPath?.startsWith(`${stage}/`))
+    } else if (currentFolder.value.folderPath || folderId.includes('/')) {
+      const path = currentFolder.value.folderPath || folderId
+      docs = docs.filter((d) => d.folderPath === path)
+    } else {
+      docs = docs.filter((doc) => (doc.documentType || '其他') === currentFolder.value.label)
+    }
+  }
+  const kw = searchKeyword.value?.trim().toLowerCase()
+  if (kw) {
+    docs = docs.filter((doc) => {
+      const nameMatch = doc.documentName?.toLowerCase().includes(kw)
+      let tags = []
+      if (doc.tags) {
+        try {
+          tags = JSON.parse(doc.tags)
+        } catch {
+          tags = String(doc.tags).split(',').map((t) => t.trim())
+        }
+      }
+      const tagMatch = tags.some((tag) => String(tag).toLowerCase().includes(kw))
+      return nameMatch || tagMatch
+    })
+  }
+  return docs.map((doc) => {
     // 解析文件扩展名
     const fileName = doc.documentName || ''
     const ext = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : ''
@@ -709,22 +592,9 @@ const formatFileSize = (bytes) => {
   return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
 }
 
-// 树节点点击
-const handleNodeClick = async (data) => {
+// 树节点点击（按 documentType 客户端过滤）
+const handleNodeClick = (data) => {
   currentFolder.value = data
-  // 加载对应文件夹的文件
-  if (data.type === 'folder') {
-    try {
-      const documentType = data.label // 使用文件夹名作为文档类型
-      const response = await getDocumentsByType(props.caseData.id, documentType)
-      if (response.success) {
-        // 更新当前文件夹的文件列表
-        loadDocuments()
-      }
-    } catch (error) {
-      console.error('加载文件夹失败:', error)
-    }
-  }
 }
 
 // 面包屑点击
@@ -745,8 +615,7 @@ const handleAddFolder = async () => {
     // 案件文档使用documentType分类，不是真正的文件夹
     // 这里我们创建一个新的文档分类
     ElMessage.success(`文档分类"${value}"创建成功`)
-    // 刷新文档树，添加新的分类
-    loadDocuments()
+    await fetchDocuments()
   } catch (error) {
     if (error !== 'cancel') {
       console.error('创建文件夹失败:', error)
@@ -791,59 +660,24 @@ const handleNewDocument = async () => {
   }
 }
 
-// AI识别上传
+// 跳转 AI 中心（统一向导，带案件上下文）
 const handleAIUpload = () => {
-  aiDialogVisible.value = true
-}
-
-const handleAIFileChange = async (file) => {
-  try {
-    ElMessage.info(AI_RECOGNITION.processingHint)
-    const res = await recognizeLegalDocument(file.raw, props.caseData?.id)
-    if (!(res.code === 200 || res.success) || !res.data) {
-      ElMessage.error(res.message || AI_RECOGNITION.failMessage)
-      return
-    }
-    const data = res.data
-    aiResult.value = {
-      docType: data.documentType || '未识别',
-      suggestedFolder: data.documentType ? `法院文书/${data.documentType}` : '其他',
-      content: [
-        data.caseNumber && `案号：${data.caseNumber}`,
-        data.courtName && `法院：${data.courtName}`,
-        data.plaintiffName && `原告：${data.plaintiffName}`,
-        data.defendantName && `被告：${data.defendantName}`,
-        data.caseReason && `案由：${data.caseReason}`
-      ].filter(Boolean).join('\n') || '识别成功'
-    }
-    ElMessage.success(`${AI_RECOGNITION.successTitle}！`)
-  } catch (error) {
-    console.error('AI识别失败:', error)
-    ElMessage.error(`${AI_RECOGNITION.failMessage}，请重试`)
-    aiResult.value = {
-      docType: '起诉状',
-      suggestedFolder: '起诉状',
-      content: '识别到原告：张三，被告：李四，案由：买卖合同纠纷'
-    }
-  }
-}
-
-// 搜索
-const handleSearch = () => {
-  if (!searchKeyword.value) {
-    // 如果搜索关键词为空，重新加载所有文档
-    loadDocuments()
+  if (!props.caseData?.id) {
+    ElMessage.warning('请先保存案件基本信息')
     return
   }
-
-  // 本地搜索过滤
-  const filtered = documents.value.filter(doc => {
-    return doc.documentName && doc.documentName.toLowerCase().includes(searchKeyword.value.toLowerCase()) ||
-           doc.tags && doc.tags.some(tag => tag.toLowerCase().includes(searchKeyword.value.toLowerCase()))
+  router.push({
+    path: '/ai-hub',
+    query: { intent: 'intake', caseId: String(props.caseData.id) }
   })
+}
 
-  // 更新文件列表显示
-  ElMessage.success(`找到 ${filtered.length} 个匹配的文档`)
+// 搜索（列表由 fileList 计算属性实时过滤）
+const handleSearch = () => {
+  const count = fileList.value.length
+  if (searchKeyword.value?.trim()) {
+    ElMessage.success(`找到 ${count} 个匹配的文档`)
+  }
 }
 
 // 一键归档PDF
@@ -896,48 +730,90 @@ const handleBatchAction = async (command) => {
     ElMessage.warning('请先选择文件')
     return
   }
+  if (!props.caseData?.id) {
+    ElMessage.warning('案件信息未加载')
+    return
+  }
+
+  const caseId = props.caseData.id
+  const files = [...selectedFiles.value]
 
   try {
     switch (command) {
-      case 'download':
-        ElMessage.success(`开始下载${selectedFiles.value.length}个文件`)
-        // 实现批量下载逻辑
+      case 'download': {
+        for (const file of files) {
+          await downloadDocument(caseId, toPreviewRow(file))
+        }
+        ElMessage.success(`已开始下载 ${files.length} 个文件`)
         break
-      case 'delete':
+      }
+      case 'delete': {
         await ElMessageBox.confirm(
-          `确定要删除选中的${selectedFiles.value.length}个文件吗？`,
+          `确定要删除选中的 ${files.length} 个文件吗？`,
           '批量删除',
+          { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
+        )
+        loading.value = true
+        for (const file of files) {
+          await deleteCaseDocument(caseId, file.id)
+        }
+        ElMessage.success(`已删除 ${files.length} 个文件`)
+        selectedFiles.value = []
+        await fetchDocuments()
+        break
+      }
+      case 'move': {
+        const { value } = await ElMessageBox.prompt(
+          `请输入目标分类（${DOC_FOLDER_NAMES.join('、')}）`,
+          '批量移动',
           {
             confirmButtonText: '确定',
             cancelButtonText: '取消',
-            type: 'warning'
+            inputPlaceholder: '例如：原告证据',
+            inputValidator: (v) =>
+              DOC_FOLDER_NAMES.includes(v?.trim()) || `请选择：${DOC_FOLDER_NAMES.join('、')}`
           }
         )
-        ElMessage.success(`成功删除${selectedFiles.value.length}个文件`)
-        // 实现批量删除逻辑
+        const folder = value.trim()
+        loading.value = true
+        for (const file of files) {
+          await moveCaseDocument(caseId, file.id, folder)
+        }
+        ElMessage.success(`已将 ${files.length} 个文件移动到「${folder}」`)
         selectedFiles.value = []
+        await fetchDocuments()
         break
-      case 'move':
-        ElMessage.info('批量移动功能：请选择目标文件夹')
-        // 实现批量移动逻辑
-        break
-      case 'tag':
+      }
+      case 'tag': {
         const { value } = await ElMessageBox.prompt('请输入要添加的标签', '批量添加标签', {
           confirmButtonText: '确定',
           cancelButtonText: '取消',
-          inputPlaceholder: '请输入标签名称'
+          inputPlaceholder: '请输入标签名称',
+          inputPattern: /^.{1,20}$/,
+          inputErrorMessage: '标签长度为1-20个字符'
         })
-        ElMessage.success(`已为${selectedFiles.value.length}个文件添加标签：${value}`)
-        // 实现批量添加标签逻辑
+        loading.value = true
+        for (const file of files) {
+          const currentTags = Array.isArray(file.tags) ? file.tags : []
+          if (currentTags.includes(value)) continue
+          await updateCaseDocument(caseId, file.id, {
+            tags: JSON.stringify([...currentTags, value])
+          })
+        }
+        ElMessage.success(`已为 ${files.length} 个文件添加标签：${value}`)
+        await fetchDocuments()
         break
+      }
       default:
         ElMessage.info(`批量${command}功能`)
     }
   } catch (error) {
     if (error !== 'cancel') {
       console.error(`批量${command}失败:`, error)
-      ElMessage.error('操作失败')
+      ElMessage.error(error.message || '操作失败')
     }
+  } finally {
+    loading.value = false
   }
 }
 
@@ -946,106 +822,25 @@ const handleSelectionChange = (selection) => {
   selectedFiles.value = selection
 }
 
-const revokePreviewBlob = () => {
-  if (previewBlobUrl.value) {
-    window.URL.revokeObjectURL(previewBlobUrl.value)
-    previewBlobUrl.value = ''
+const toPreviewRow = (file) => ({
+  id: file.id,
+  documentName: file.name,
+  name: file.name,
+  type: file.type,
+  contentType: file.contentType
+})
+
+const handlePreviewFile = (file) => {
+  if (!props.caseData?.id) {
+    ElMessage.warning('案件信息未加载')
+    return
   }
-  previewMode.value = ''
-  previewFile.value = null
-  previewHtmlContent.value = ''
+  previewRef.value?.preview(props.caseData.id, toPreviewRow(file))
 }
 
-const loadPreviewHtml = async (file) => {
-  revokePreviewBlob()
-  previewLoading.value = true
-  try {
-    const html = await previewCaseDocumentHtml(props.caseData.id, file.id)
-    previewHtmlContent.value = typeof html === 'string' ? html : (html?.data || '')
-    if (!previewHtmlContent.value) {
-      throw new Error('预览内容为空')
-    }
-  } finally {
-    previewLoading.value = false
-  }
-}
-
-const loadPreviewBlob = async (file, mimeHint) => {
-  revokePreviewBlob()
-  previewLoading.value = true
-  try {
-    const data = await previewCaseDocument(props.caseData.id, file.id)
-    const mime = mimeHint || (file.type === 'pdf' ? 'application/pdf' : `image/${file.type}`)
-    const blob = new Blob([data], { type: mime })
-    previewBlobUrl.value = window.URL.createObjectURL(blob)
-  } finally {
-    previewLoading.value = false
-  }
-}
-
-// 预览文件
-const handlePreviewFile = async (file) => {
-  const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp']
-  const pdfExt = 'pdf'
-  const ext = (file.type || '').toLowerCase()
-
-  if (imageExts.includes(ext)) {
-    previewFile.value = file
-    previewMode.value = 'image'
-    previewDialogVisible.value = true
-    await loadPreviewBlob(file, `image/${ext === 'jpg' ? 'jpeg' : ext}`)
-  } else if (ext === pdfExt) {
-    previewFile.value = file
-    previewMode.value = 'pdf'
-    previewDialogVisible.value = true
-    await loadPreviewBlob(file, 'application/pdf')
-  } else if (OFFICE_PREVIEW_EXTS.includes(ext)) {
-    previewFile.value = file
-    previewMode.value = 'html'
-    previewDialogVisible.value = true
-    try {
-      await loadPreviewHtml(file)
-    } catch (e) {
-      previewDialogVisible.value = false
-      ElMessage.error('Office 预览失败：' + (e.message || '请下载后查看'))
-    }
-  } else {
-    // 其他文件 - 提示下载
-    ElMessageBox.confirm(
-      '该文件类型暂不支持在线预览，是否下载后查看？',
-      '提示',
-      {
-        confirmButtonText: '下载',
-        cancelButtonText: '取消',
-        type: 'info'
-      }
-    ).then(() => {
-      handleDownloadFile(file)
-    }).catch(() => {})
-  }
-}
-
-// 下载文件
-const handleDownloadFile = async (file) => {
-  try {
-    ElMessage.info('正在下载...')
-
-    const response = await downloadCaseDocument(props.caseData.id, file.id)
-
-    // 创建blob URL并下载
-    const blob = new Blob([response])
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = file.name
-    link.click()
-    window.URL.revokeObjectURL(url)
-
-    ElMessage.success('下载成功')
-  } catch (error) {
-    console.error('下载文件失败:', error)
-    ElMessage.error('下载失败')
-  }
+const handleDownloadFile = (file) => {
+  if (!props.caseData?.id) return
+  downloadDocument(props.caseData.id, toPreviewRow(file))
 }
 
 // 重命名文件
@@ -1175,7 +970,7 @@ const handleGenerateDoc = async () => {
     }
   } catch (error) {
     console.error('生成文书失败:', error)
-    ElMessage.error('生成文书失败：' + (error.message || '未知错误'))
+    ElMessage.error(buildAiErrorHint(formatAiError(error)))
   } finally {
     aiDocGenerating.value = false
   }
@@ -1199,16 +994,22 @@ const handleCopyDoc = () => {
   })
 }
 
-// 保存文档为文件
+// 下载 TXT
 const handleSaveDoc = () => {
-  const blob = new Blob([aiGeneratedDoc.value], { type: 'application/msword' })
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${aiDocForm.value.documentType}_${props.caseData.caseName}.doc`
-  link.click()
-  window.URL.revokeObjectURL(url)
-  ElMessage.success('文档保存成功')
+  const name = `${getDocumentTypeLabel(aiDocForm.value.documentType) || '文书'}_${props.caseData.caseName}`
+  if (downloadTxt(aiGeneratedDoc.value, `${name}.txt`)) {
+    ElMessage.success('TXT 已下载')
+  }
+}
+
+const handleExportDocx = async () => {
+  const title = getDocumentTypeLabel(aiDocForm.value.documentType) || '法律文书'
+  const name = `${title}_${props.caseData.caseName || 'case'}`
+  await downloadDocx({
+    content: aiGeneratedDoc.value,
+    title,
+    fileName: `${name}.docx`
+  })
 }
 
 </script>
@@ -1328,15 +1129,5 @@ const handleSaveDoc = () => {
     }
   }
 
-  .preview-container {
-    min-height: 400px;
-  }
-
-  .preview-html-frame,
-  .preview-pdf-frame {
-    width: 100%;
-    height: 70vh;
-    border: none;
-  }
 }
 </style>

@@ -6,6 +6,9 @@ import com.lawfirm.repository.NotificationRepository;
 import com.lawfirm.util.PageResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -39,6 +42,7 @@ public class NotificationService {
     public static final String CATEGORY_SYSTEM = "系统";
 
     private final NotificationRepository notificationRepository;
+    private final CacheManager cacheManager;
 
     @Transactional
     public void sendTodoOverdueNotification(Long todoId, String title, String dueDate, Long userId) {
@@ -119,7 +123,18 @@ public class NotificationService {
         notification.setIsRead(false);
         notification.setCreatedAt(LocalDateTime.now());
         notificationRepository.save(notification);
+        evictUnreadCache(userId);
         log.info("通知已发送：userId={}, group={}, title={}", userId, categoryGroup, title);
+    }
+
+    private void evictUnreadCache(Long userId) {
+        if (userId == null || cacheManager == null) {
+            return;
+        }
+        var cache = cacheManager.getCache("notificationUnread");
+        if (cache != null) {
+            cache.evict(userId);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -157,6 +172,7 @@ public class NotificationService {
     }
 
     @Transactional(readOnly = true)
+    @Cacheable(value = "notificationUnread", key = "#userId")
     public Long getUnreadCount(Long userId) {
         return notificationRepository.countByReceiverIdAndIsReadFalse(userId);
     }
@@ -178,6 +194,7 @@ public class NotificationService {
     }
 
     @Transactional
+    @CacheEvict(value = "notificationUnread", key = "#userId")
     public void markAsRead(Long userId, Long notificationId) {
         notificationRepository.findById(notificationId).ifPresent(notification -> {
             if (notification.getReceiverId().equals(userId)) {
@@ -189,6 +206,7 @@ public class NotificationService {
     }
 
     @Transactional
+    @CacheEvict(value = "notificationUnread", key = "#userId")
     public void markAllAsRead(Long userId) {
         List<Notification> unread = notificationRepository.findByReceiverIdAndIsReadFalseOrderByCreatedAtDesc(userId);
         LocalDateTime now = LocalDateTime.now();
@@ -200,6 +218,7 @@ public class NotificationService {
     }
 
     @Transactional
+    @CacheEvict(value = "notificationUnread", key = "#userId")
     public void deleteNotification(Long userId, Long notificationId) {
         notificationRepository.findById(notificationId).ifPresent(notification -> {
             if (notification.getReceiverId().equals(userId)) {

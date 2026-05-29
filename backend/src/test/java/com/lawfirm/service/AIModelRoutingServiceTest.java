@@ -1,5 +1,6 @@
 package com.lawfirm.service;
 
+import com.lawfirm.config.LawfirmAiProperties;
 import com.lawfirm.config.LLMProperties;
 import com.lawfirm.entity.AIConfig;
 import com.lawfirm.enums.AIModelUseCase;
@@ -30,14 +31,31 @@ class AIModelRoutingServiceTest {
     @Mock
     private LLMProperties.RoutingConfig routingConfig;
 
+    @Mock
+    private LawfirmAiProperties lawfirmAiProperties;
+
     @InjectMocks
     private AIModelRoutingService aimodelRoutingService;
 
     @BeforeEach
     void setup() {
+        lenient().when(lawfirmAiProperties.isCloudGlm()).thenReturn(false);
         lenient().when(llmProperties.getRouting()).thenReturn(routingConfig);
         lenient().when(routingConfig.getLegalChat()).thenReturn("deepseek");
         lenient().when(routingConfig.getRag()).thenReturn("lmstudio");
+    }
+
+    @Test
+    void cloudGlmModeForcesZhipuRegardlessOfRouting() {
+        when(lawfirmAiProperties.isCloudGlm()).thenReturn(true);
+        AIConfig cfg = new AIConfig();
+        cfg.setId(1L);
+        cfg.setProviderType("zhipu");
+        cfg.setModelName("glm-4.7");
+        when(aiConfigService.findFirstEnabledByProviderIgnoreCase("zhipu")).thenReturn(Optional.of(cfg));
+
+        AIConfig out = aimodelRoutingService.resolveForUseCase(AIModelUseCase.LEGAL_CHAT);
+        assertEquals("zhipu", out.getProviderType());
     }
 
     @Test

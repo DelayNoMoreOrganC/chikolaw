@@ -5,9 +5,11 @@ import com.lawfirm.entity.Case;
 import com.lawfirm.entity.CaseDocument;
 import com.lawfirm.repository.CaseDocumentRepository;
 import com.lawfirm.repository.CaseRepository;
+import com.lawfirm.util.PageResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,7 +22,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -75,7 +79,7 @@ public class CaseDocumentService {
      * 获取案件文档列表
      */
     public List<CaseDocumentDTO> getCaseDocuments(Long caseId) {
-        return caseDocumentRepository.findByCaseIdOrderByCreatedAtDesc(caseId).stream()
+        return caseDocumentRepository.findByCaseIdAndDeletedFalseOrderByCreatedAtDesc(caseId).stream()
                 .map(this::convertToDTO)
                 .collect(Collectors.toList());
     }
@@ -84,18 +88,76 @@ public class CaseDocumentService {
      * 根据类型获取文档列表
      */
     public List<CaseDocumentDTO> getDocumentsByType(String documentType) {
-        return caseDocumentRepository.findByDocumentType(documentType).stream()
+        return caseDocumentRepository.findByDocumentTypeAndDeletedFalse(documentType).stream()
                 .map(this::convertToDTO)
                 .collect(Collectors.toList());
     }
 
     /**
-     * 获取全部文档（跨案件聚合视图）
+     * 获取全部文档（跨案件聚合视图，未删除）
      */
     public List<CaseDocumentDTO> getAllDocuments() {
-        return caseDocumentRepository.findAll().stream()
+        return caseDocumentRepository.findByDeletedFalse().stream()
                 .map(this::convertToDTO)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 文档中心：分页检索 + 聚合统计
+     */
+    @Transactional(readOnly = true)
+    public PageResult<CaseDocumentDTO> searchDocuments(Long caseId, String documentType,
+                                                       String keyword, int page, int size) {
+        int pageIndex = Math.max(0, page - 1);
+        Pageable pageable = PageRequest.of(pageIndex, Math.min(Math.max(size, 1), 100),
+                org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt"));
+        Page<CaseDocument> result = caseDocumentRepository.searchActiveDocuments(
+                caseId, documentType, keyword, pageable);
+        List<CaseDocumentDTO> records = result.getContent().stream()
+                .map(this::convertToDTO)
+                .collect(Collectors.toList());
+        return new PageResult<>((long) page, (long) size, result.getTotalElements(), records);
+    }
+
+    /**
+     * 建案确认后标记阶段卷宗目录结构已初始化（前端按阶段×文书类型展示目录树）。
+     */
+    @Transactional
+    public void initStageFolders(Long caseId, String caseType, String currentStage) {
+        Case caseEntity = caseRepository.findById(caseId)
+                .orElseThrow(() -> new IllegalArgumentException("案件不存在"));
+        if (Boolean.TRUE.equals(caseEntity.getStageFoldersInitialized())) {
+            return;
+        }
+        caseEntity.setStageFoldersInitialized(true);
+        caseRepository.save(caseEntity);
+        log.info("阶段卷宗目录已初始化: caseId={}, caseType={}, currentStage={}",
+                caseId, caseType, currentStage);
+    }
+
+    /**
+     * 解析上传目标文件夹：{阶段}/{文书类型}
+     */
+    public String resolveStageDocumentFolder(Case caseEntity, String documentTypeFolder) {
+        String typePart = documentTypeFolder != null && !documentTypeFolder.isBlank()
+                ? documentTypeFolder : "其他";
+        if (caseEntity == null) {
+            return typePart;
+        }
+        String stage = caseEntity.getCurrentStage();
+        if (stage == null || stage.isBlank()) {
+            return typePart;
+        }
+        return stage.trim() + "/" + typePart;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getDocumentCenterStats() {
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("totalDocuments", caseDocumentRepository.countActiveDocuments());
+        stats.put("uniqueCases", caseDocumentRepository.countDistinctActiveCases());
+        stats.put("totalSize", caseDocumentRepository.sumActiveFileSize());
+        return stats;
     }
 
     /**
@@ -115,11 +177,21 @@ public class CaseDocumentService {
         CaseDocument document = caseDocumentRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("文档不存在"));
 
-        document.setDocumentName(dto.getDocumentName());
-        document.setDocumentType(dto.getDocumentType());
-        document.setFolderPath(dto.getFolderPath());
-        document.setTags(dto.getTags());
-        document.setOcrResult(dto.getOcrResult());
+        if (dto.getDocumentName() != null) {
+            document.setDocumentName(dto.getDocumentName());
+        }
+        if (dto.getDocumentType() != null) {
+            document.setDocumentType(dto.getDocumentType());
+        }
+        if (dto.getFolderPath() != null) {
+            document.setFolderPath(dto.getFolderPath());
+        }
+        if (dto.getTags() != null) {
+            document.setTags(dto.getTags());
+        }
+        if (dto.getOcrResult() != null) {
+            document.setOcrResult(dto.getOcrResult());
+        }
 
         CaseDocument updated = caseDocumentRepository.save(document);
         log.info("更新案件文档成功: id={}", id);

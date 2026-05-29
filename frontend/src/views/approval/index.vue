@@ -126,7 +126,7 @@
                   size="small"
                   @click="goCreateCaseFromFiling(row)"
                 >
-                  完善立案
+                  确认建案
                 </el-button>
                 <el-button
                   link
@@ -323,11 +323,51 @@ const parseIntakePendingId = (attachments) => {
 const isApproved = (row) =>
   row.status === 'APPROVED' || row.status === '已同意' || row.statusDesc === '已同意'
 
+const navigateToConfirmEstablishment = (caseId) => {
+  router.push({ path: `/case/${caseId}/edit`, query: { action: 'confirmEstablishment' } })
+}
+
+const promptAfterFilingApproved = async (row) => {
+  const pendingId = parseIntakePendingId(row.attachments)
+  let caseId = row.caseId
+
+  if (pendingId) {
+    try {
+      const res = await getIntakePrefill(pendingId)
+      if ((res.code === 200 || res.success) && res.data?.draftCaseId) {
+        caseId = res.data.draftCaseId
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const message = caseId
+    ? '立案审批已通过。请核对案件信息后点击「确认建案」，案件将进入审理中并初始化卷宗目录。'
+    : '识别信息将自动预填，完善后提交利冲审查并确认建案。'
+  const confirmText = caseId ? '去确认建案' : '完善案件'
+
+  try {
+    await ElMessageBox.confirm(message, '立案审批已通过', {
+      confirmButtonText: confirmText,
+      cancelButtonText: '稍后',
+      type: 'success'
+    })
+    if (caseId) {
+      navigateToConfirmEstablishment(caseId)
+    } else if (pendingId) {
+      router.push({ path: '/case/create', query: { intakePendingId: String(pendingId) } })
+    }
+  } catch {
+    /* 用户选择稍后 */
+  }
+}
+
 const navigateAfterFilingApproval = async (pendingId) => {
   try {
     const res = await getIntakePrefill(pendingId)
     if ((res.code === 200 || res.success) && res.data?.draftCaseId) {
-      router.push(`/case/${res.data.draftCaseId}/edit`)
+      navigateToConfirmEstablishment(res.data.draftCaseId)
       return
     }
   } catch {
@@ -337,9 +377,13 @@ const navigateAfterFilingApproval = async (pendingId) => {
 }
 
 const goCreateCaseFromFiling = async (row) => {
+  if (row.caseId) {
+    navigateToConfirmEstablishment(row.caseId)
+    return
+  }
   const pendingId = parseIntakePendingId(row.attachments)
   if (!pendingId) {
-    ElMessage.warning('未找到关联的卷宗暂存编号')
+    ElMessage.warning('未找到关联案件或卷宗暂存编号')
     return
   }
   await navigateAfterFilingApproval(pendingId)
@@ -356,36 +400,6 @@ const loadApprovalTypes = async () => {
       code,
       name
     }))
-  }
-}
-
-const promptGoCreateCaseAfterFiling = async (pendingId) => {
-  let draftCaseId = null
-  try {
-    const res = await getIntakePrefill(pendingId)
-    if ((res.code === 200 || res.success) && res.data?.draftCaseId) {
-      draftCaseId = res.data.draftCaseId
-    }
-  } catch {
-    /* ignore */
-  }
-  const message = draftCaseId
-    ? '系统已根据卷宗识别结果创建待立案草稿，卷宗已挂接。请完善当事人、收费方式等必填项。'
-    : '识别信息将自动预填，建案成功后卷宗文件将自动归入新案件卷宗。'
-  const confirmText = draftCaseId ? '完善案件草稿' : '去新建案件'
-  try {
-    await ElMessageBox.confirm(message, '立案审批已通过', {
-      confirmButtonText: confirmText,
-      cancelButtonText: '稍后',
-      type: 'success'
-    })
-    if (draftCaseId) {
-      router.push(`/case/${draftCaseId}/edit`)
-    } else {
-      router.push({ path: '/case/create', query: { intakePendingId: String(pendingId) } })
-    }
-  } catch {
-    /* 用户选择稍后 */
   }
 }
 
@@ -495,10 +509,7 @@ const handleApprove = async (row) => {
     if (response.success) {
       ElMessage.success('审批已同意')
       if (row.approvalType === 'CASE_FILING') {
-        const pendingId = parseIntakePendingId(row.attachments)
-        if (pendingId) {
-          await promptGoCreateCaseAfterFiling(pendingId)
-        }
+        await promptAfterFilingApproved(row)
       }
       fetchApprovalList()
     } else {

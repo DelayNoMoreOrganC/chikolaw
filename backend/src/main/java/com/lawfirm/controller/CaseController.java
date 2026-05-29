@@ -64,6 +64,24 @@ public class CaseController {
     }
 
     /**
+     * 确认正式建案（草稿/待立案 → 审理中）
+     * PUT /api/cases/{id}/confirm-establishment
+     */
+    @PutMapping("/{id}/confirm-establishment")
+    @PreAuthorize("isAuthenticated()")
+    @AuditLog(value = "确认建案", operationType = "UPDATE")
+    public Result<CaseDetailVO> confirmEstablishment(@PathVariable Long id) {
+        try {
+            Long currentUserId = securityUtils.getCurrentUserId();
+            CaseDetailVO detail = caseService.confirmEstablishment(id, currentUserId);
+            return Result.success("案件已正式建立", detail);
+        } catch (Exception e) {
+            log.error("确认建案失败: id={}", id, e);
+            return Result.error("确认建案失败: " + e.getMessage());
+        }
+    }
+
+    /**
      * 获取案件列表
      */
     @GetMapping

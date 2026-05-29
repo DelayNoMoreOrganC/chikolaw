@@ -1,0 +1,52 @@
+/**
+ * 主内容区路由切换：轻量淡入 + 微位移（非 out-in，与 keep-alive 并存）
+ */
+.route-page-root {
+  min-height: 100%;
+  width: 100%;
+}
+
+.route-soft-enter-active {
+  transition:
+    opacity 0.24s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.route-soft-leave-active {
+  transition:
+    opacity 0.18s cubic-bezier(0.4, 0, 0.6, 1),
+    transform 0.18s cubic-bezier(0.4, 0, 0.6, 1);
+  position: absolute;
+  width: 100%;
+  pointer-events: none;
+}
+
+.route-soft-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.route-soft-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+/* 主内容区 / Tab 区：leave 绝对定位时的叠层容器 */
+.main-content.route-transition-host,
+.tab-content.route-transition-host {
+  position: relative;
+  overflow-x: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-soft-enter-active,
+  .route-soft-leave-active {
+    transition: none !important;
+  }
+
+  .route-soft-enter-from,
+  .route-soft-leave-to {
+    opacity: 1;
+    transform: none;
+  }
+}

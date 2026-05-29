@@ -1,5 +1,6 @@
 package com.lawfirm.service;
 
+import com.lawfirm.config.LawfirmAiProperties;
 import com.lawfirm.config.LLMProperties;
 import com.lawfirm.entity.AIConfig;
 import com.lawfirm.enums.AIModelUseCase;
@@ -19,6 +20,7 @@ public class AIModelRoutingService {
 
     private final AIConfigService aiConfigService;
     private final LLMProperties llmProperties;
+    private final LawfirmAiProperties lawfirmAiProperties;
 
     public AIConfig resolveForUseCase(AIModelUseCase useCase) {
         String provider = providerForUseCase(useCase);
@@ -41,9 +43,12 @@ public class AIModelRoutingService {
     }
 
     private String providerForUseCase(AIModelUseCase useCase) {
+        if (lawfirmAiProperties.isCloudGlm()) {
+            return "zhipu";
+        }
         LLMProperties.RoutingConfig r = llmProperties.getRouting();
         if (r == null) {
-            return "lmstudio";
+            return "zhipu";
         }
         switch (useCase) {
             case LEGAL_CHAT:
@@ -61,11 +66,11 @@ public class AIModelRoutingService {
             case LEGACY_DOCUMENT:
                 return emptyToDefault(r.getLegacyDocument());
             default:
-                return "lmstudio";
+                return "zhipu";
         }
     }
 
     private static String emptyToDefault(String s) {
-        return (s == null || s.isBlank()) ? "lmstudio" : s.trim();
+        return (s == null || s.isBlank()) ? "zhipu" : s.trim();
     }
 }

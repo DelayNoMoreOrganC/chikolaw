@@ -1,0 +1,64 @@
+# 单元/集成测试专用：内存 H2，与 dev 文件库隔离，避免 mvn test 时锁 lawfirm.mv.db
+server:
+  port: 0
+
+spring:
+  application:
+    name: lawfirm-backend-test
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+  datasource:
+    driver-class-name: org.h2.Driver
+    url: jdbc:h2:mem:lawfirm_test;MODE=MySQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        globally_quoted_identifiers: true
+    open-in-view: false
+  sql:
+    init:
+      mode: never
+
+lawfirm:
+  ai:
+    mode: cloud-glm
+
+llm:
+  zhipu:
+    api-key: test-zhipu-key-for-unit-tests
+    base-url: https://open.bigmodel.cn/api/coding/paas/v4
+    chat-model: glm-4.7
+    vision-model: glm-4.6v
+  fallback:
+    enabled: false
+
+ai:
+  ocr:
+    enabled: true
+    provider: zhipu
+
+login:
+  lock-enabled: false
+
+qdrant:
+  enabled: false
+
+case-search:
+  semantic:
+    enabled: false
+
+logging:
+  level:
+    root: WARN
+    com.lawfirm: INFO

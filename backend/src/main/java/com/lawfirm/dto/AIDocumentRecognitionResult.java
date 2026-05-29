@@ -105,4 +105,10 @@ public class AIDocumentRecognitionResult {
      * 处理时间（毫秒）
      */
     private Long processingTime;
+
+    /** 是否已尝试执行业务自动化（待办/建案等） */
+    private Boolean businessLogicExecuted;
+
+    /** 业务自动化结果摘要（如 todoId、caseId） */
+    private java.util.Map<String, Object> businessLogic;
 }

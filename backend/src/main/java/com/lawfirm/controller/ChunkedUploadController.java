@@ -21,6 +21,17 @@ public class ChunkedUploadController {
     private final ChunkedUploadService chunkedUploadService;
 
     /**
+     * 兼容旧前端 {@code VITE_APP_UPLOAD_URL=/api/upload}：引导使用卷宗/识别接口，避免 HTTP 404。
+     */
+    @PostMapping
+    @PreAuthorize("isAuthenticated()")
+    public Result<Void> legacySingleFileUpload() {
+        return Result.error(
+                "请使用卷宗录入 POST /case-intake/process 或文书识别 POST /ai/documents/recognize；"
+                        + "大文件分片请用 POST /upload/init");
+    }
+
+    /**
      * 初始化分片上传
      * POST /api/upload/init
      */

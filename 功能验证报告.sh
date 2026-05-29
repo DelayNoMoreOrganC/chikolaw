@@ -37,9 +37,9 @@ CAL_COUNT=$(echo "$CAL" | grep -o '"id":[0-9]*' | wc -l)
 echo "   日程数: $CAL_COUNT"
 echo ""
 
-echo "5. AI OCR"
-OCR=$(curl -s "http://localhost:8080/api/ocr/health" -H "Authorization: Bearer $TOKEN")
-echo "   状态: $(echo "$OCR" | grep -o '"code":[0-9]*' | cut -d':' -f2)"
+echo "5. AI 诊断（v2.3 替代遗留 /ocr/health）"
+AI_DIAG=$(curl -s "http://localhost:8080/api/ai/diagnostics" -H "Authorization: Bearer $TOKEN")
+echo "   状态: $(echo "$AI_DIAG" | grep -o '"code":[0-9]*' | cut -d':' -f2)"
 echo ""
 
 echo "【P1重要功能】"

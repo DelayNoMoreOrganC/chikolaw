@@ -30,6 +30,7 @@ public class CalendarService {
     private final CalendarRepository calendarRepository;
     private final CaseRepository caseRepository;
     private final UserRepository userRepository;
+    private final CaseCalendarSyncService caseCalendarSyncService;
 
     /**
      * 创建日程
@@ -56,6 +57,10 @@ public class CalendarService {
 
         calendar = calendarRepository.save(calendar);
         log.info("创建日程成功: {}", calendar.getId());
+
+        if (!CaseCalendarSyncService.isSuppressed()) {
+            caseCalendarSyncService.syncFromCalendar(calendar);
+        }
 
         return convertToDTO(calendar);
     }
@@ -87,6 +92,10 @@ public class CalendarService {
         calendar = calendarRepository.save(calendar);
         log.info("更新日程成功: {}", id);
 
+        if (!CaseCalendarSyncService.isSuppressed()) {
+            caseCalendarSyncService.syncFromCalendar(calendar);
+        }
+
         return convertToDTO(calendar);
     }
 
@@ -95,8 +104,10 @@ public class CalendarService {
      */
     @Transactional
     public void deleteCalendar(Long id) {
-        if (!calendarRepository.existsById(id)) {
-            throw new IllegalArgumentException("日程不存在");
+        Calendar calendar = calendarRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("日程不存在"));
+        if (!CaseCalendarSyncService.isSuppressed()) {
+            caseCalendarSyncService.onCalendarDeleted(calendar);
         }
         calendarRepository.deleteById(id);
         log.info("删除日程成功: {}", id);

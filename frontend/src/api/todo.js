@@ -1,4 +1,34 @@
 import request from '@/utils/request'
+import { toApiDateTime, formatDisplayDateTime } from '@/utils/datetime'
+
+const PRIORITY_TO_API = {
+  high: 'URGENT',
+  medium: 'IMPORTANT',
+  low: 'NORMAL',
+  urgent: 'URGENT',
+  important: 'IMPORTANT',
+  normal: 'NORMAL'
+}
+
+const PRIORITY_FROM_API = {
+  URGENT: 'high',
+  HIGH: 'high',
+  IMPORTANT: 'medium',
+  MEDIUM: 'medium',
+  NORMAL: 'low',
+  LOW: 'low'
+}
+
+function mapPriorityToApi(priority) {
+  if (!priority) return 'NORMAL'
+  const key = String(priority).toLowerCase()
+  return PRIORITY_TO_API[key] || String(priority).toUpperCase()
+}
+
+function mapPriorityFromApi(priority) {
+  if (!priority) return 'medium'
+  return PRIORITY_FROM_API[String(priority).toUpperCase()] || 'medium'
+}
 
 /**
  * 数据格式转换工具
@@ -16,8 +46,9 @@ function convertTodoFromBackend(backendTodo) {
     completed: backendTodo.status === 'COMPLETED',
     // 保留原始status字段
     _status: backendTodo.status,
+    priority: mapPriorityFromApi(backendTodo.priority),
     // deadline字段别名（前端使用deadline）
-    deadline: backendTodo.dueDate,
+    deadline: formatDisplayDateTime(backendTodo.dueDate) || backendTodo.dueDate,
     // remark字段别名（前端使用remark）
     remark: backendTodo.description,
     // assignee字段别名（前端使用assignee）
@@ -74,19 +105,23 @@ export function getTodoList(params) {
 
 // 创建待办（数据格式转换）
 export function createTodo(data) {
-  // 转换前端数据格式到后端DTO格式
+  const assigneeId = data.assignee ?? data.assigneeId
+  const caseId = data.caseId != null && data.caseId !== '' ? Number(data.caseId) : null
   const todoData = {
     title: data.title,
     description: data.remark || data.description || '',
     status: 'PENDING',
-    priority: data.priority ? data.priority.toUpperCase() : 'NORMAL',
-    dueDate: data.deadline || data.dueDate,
-    assigneeId: data.assignee || data.assigneeId,
-    caseId: data.caseId || null,
-    reminder: !!data.reminder // 转换为Boolean
+    priority: mapPriorityToApi(data.priority),
+    dueDate: toApiDateTime(data.deadline || data.dueDate),
+    assigneeId: assigneeId != null && assigneeId !== '' ? Number(assigneeId) : null,
+    caseId: Number.isFinite(caseId) ? caseId : null,
+    reminder: !!data.reminder
   }
 
-  // 清理空值
+  if (todoData.assigneeId == null) {
+    return Promise.reject(new Error('请选择负责人，或重新登录后再试'))
+  }
+
   Object.keys(todoData).forEach(key => {
     if (todoData[key] === undefined || todoData[key] === null || todoData[key] === '') {
       delete todoData[key]
@@ -109,12 +144,15 @@ export function updateTodo(id, data) {
   if (data.remark !== undefined) todoData.description = data.remark
   if (data.description !== undefined) todoData.description = data.description
   if (data.status !== undefined) todoData.status = data.status.toUpperCase()
-  if (data.priority !== undefined) todoData.priority = data.priority.toUpperCase()
-  if (data.deadline !== undefined) todoData.dueDate = data.deadline
-  if (data.dueDate !== undefined) todoData.dueDate = data.dueDate
-  if (data.assignee !== undefined) todoData.assigneeId = data.assignee
-  if (data.assigneeId !== undefined) todoData.assigneeId = data.assigneeId
-  if (data.caseId !== undefined) todoData.caseId = data.caseId
+  if (data.priority !== undefined) todoData.priority = mapPriorityToApi(data.priority)
+  if (data.deadline !== undefined) todoData.dueDate = toApiDateTime(data.deadline)
+  if (data.dueDate !== undefined) todoData.dueDate = toApiDateTime(data.dueDate)
+  if (data.assignee !== undefined) todoData.assigneeId = Number(data.assignee)
+  if (data.assigneeId !== undefined) todoData.assigneeId = Number(data.assigneeId)
+  if (data.caseId !== undefined) {
+    const cid = data.caseId != null && data.caseId !== '' ? Number(data.caseId) : null
+    todoData.caseId = Number.isFinite(cid) ? cid : null
+  }
   if (data.reminder !== undefined) todoData.reminder = !!data.reminder
   // 处理completed布尔值转换为status
   if (data.completed !== undefined) {

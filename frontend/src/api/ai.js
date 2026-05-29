@@ -17,20 +17,23 @@ export { normalizeDocumentTypeCode, getDocumentTypeLabel, getDocumentTypeOptions
  * @param {Number} caseId - 关联案件ID（可选）
  * @returns {Promise}
  */
-export function recognizeLegalDocument(file, caseId) {
+/**
+ * @param {File} file
+ * @param {number|null} caseId
+ * @param {boolean} executeBusinessLogic 是否执行业务自动化（待办/建案）
+ */
+export function recognizeLegalDocument(file, caseId, executeBusinessLogic = true) {
   const formData = new FormData()
   formData.append('file', file)
   if (caseId) {
     formData.append('caseId', caseId)
   }
+  formData.append('executeBusinessLogic', String(executeBusinessLogic))
 
   return aiHttp({
     url: '/ai/documents/recognize',
     method: 'post',
-    data: formData,
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
+    data: formData
   })
 }
 
@@ -52,19 +55,8 @@ export function recognizeLegalDocumentsBatch(files, caseId) {
   return aiHttp({
     url: '/ai/documents/recognize-batch',
     method: 'post',
-    data: formData,
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
+    data: formData
   })
-}
-
-/**
- * @deprecated 请使用 recognizeLegalDocument；/api/ai/ocr-upload 为遗留模拟路径
- */
-export function ocrUpload(file) {
-  console.warn('[deprecated] ocrUpload：请改用 recognizeLegalDocument')
-  return recognizeLegalDocument(file)
 }
 
 // AI提取（保留旧接口以兼容）
@@ -85,23 +77,17 @@ export function autoFillCase(caseId, data) {
   })
 }
 
-// 智能文档上传 - AI识别并创建待办/任务/日程/日志
-export function uploadDocForAIRecognition(file) {
-  const formData = new FormData()
-  formData.append('file', file)
-
-  // 使用长超时服务（120秒），因为AI识别需要较长时间
-  return aiHttp({
-    url: '/ai/documents/recognize',
+// 生成文书（兼容旧路径 /ai/generate-doc，documentType 请传 canonical code）
+/** 将文书正文导出为 docx（二进制） */
+export function exportDocumentDocx({ content, title, fileName }) {
+  return request({
+    url: '/ai/generate-doc/export-docx',
     method: 'post',
-    data: formData,
-    headers: {
-      'Content-Type': 'multipart/form-data'
-    }
+    data: { content, title, fileName },
+    responseType: 'blob'
   })
 }
 
-// 生成文书（兼容旧路径 /ai/generate-doc，documentType 请传 canonical code）
 export function generateDoc(data) {
   const payload = { ...data }
   if (payload.documentType) {
@@ -111,10 +97,11 @@ export function generateDoc(data) {
     payload.documentType = normalizeDocumentTypeCode(payload.templateType)
     delete payload.templateType
   }
-  return request({
+  return aiHttp({
     url: '/ai/generate-doc',
     method: 'post',
-    data: payload
+    data: payload,
+    timeout: 300000
   })
 }
 
@@ -147,9 +134,17 @@ export function caseChat(caseId, data) {
 // 获取AI使用日志
 export function getAiLogs(params) {
   return request({
-    url: '/ai/logs',
+    url: '/ai/logs/user',
     method: 'get',
     params
+  })
+}
+
+/** AI 可观测性快照（管理员） */
+export function getAiDiagnostics() {
+  return request({
+    url: '/ai/diagnostics',
+    method: 'get'
   })
 }
 

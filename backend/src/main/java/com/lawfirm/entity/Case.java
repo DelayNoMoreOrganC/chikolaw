@@ -223,6 +223,10 @@ public class Case extends LogicalDeleteEntity {
     @Column(name = "conflict_waiver_approval_id")
     private Long conflictWaiverApprovalId;
 
+    /** 立案审批（CASE_FILING）关联 ID */
+    @Column(name = "filing_approval_id")
+    private Long filingApprovalId;
+
     // ==================== 新增字段（对标系统问题.xlsx）====================
 
     /**
@@ -320,4 +324,8 @@ public class Case extends LogicalDeleteEntity {
      */
     @Column(name = "fee_remark", length = 1000)
     private String feeRemark;
+
+    /** 建案确认后是否已初始化阶段卷宗目录结构 */
+    @Column(name = "stage_folders_initialized")
+    private Boolean stageFoldersInitialized = false;
 }

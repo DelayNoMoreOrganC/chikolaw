@@ -88,6 +88,13 @@ public class CacheConfig {
                 .recordStats()
                 .build());
 
+        // 顶栏未读数（短 TTL，降低 50 人轮询压力）
+        cacheManager.registerCustomCache("notificationUnread", Caffeine.newBuilder()
+                .maximumSize(500)
+                .expireAfterWrite(20, TimeUnit.SECONDS)
+                .recordStats()
+                .build());
+
         return cacheManager;
     }
 }

@@ -9,34 +9,45 @@
       </template>
     </PageHeader>
 
+    <!-- 快捷筛选 -->
+    <div class="quick-filter-bar">
+      <el-radio-group v-model="quickFilter" size="small" @change="handleQuickFilterChange">
+        <el-radio-button label="all">全部</el-radio-button>
+        <el-radio-button label="draft">草稿</el-radio-button>
+        <el-radio-button label="pending_approval">待审批</el-radio-button>
+        <el-radio-button label="pending_intake">待挂接卷宗</el-radio-button>
+        <el-radio-button label="mine">我的案件</el-radio-button>
+      </el-radio-group>
+    </div>
+
     <!-- 筛选条件区 -->
     <div class="filter-section">
       <el-form :model="filterForm" inline>
         <el-form-item label="案件类型">
           <el-select v-model="filterForm.caseType" placeholder="请选择" clearable style="width: 150px">
-            <el-option label="民事" value="民事" />
-            <el-option label="商事" value="商事" />
-            <el-option label="仲裁" value="仲裁" />
-            <el-option label="刑事" value="刑事" />
-            <el-option label="行政" value="行政" />
-            <el-option label="非诉" value="非诉" />
+            <el-option label="民事" value="CIVIL" />
+            <el-option label="商事" value="COMMERCIAL" />
+            <el-option label="仲裁" value="ARBITRATION" />
+            <el-option label="刑事" value="CRIMINAL" />
+            <el-option label="行政" value="ADMINISTRATIVE" />
+            <el-option label="非诉" value="NON_LITIGATION" />
           </el-select>
         </el-form-item>
 
         <el-form-item label="案件状态">
           <el-select v-model="filterForm.status" placeholder="请选择" clearable style="width: 150px">
-            <el-option label="待立案" value="pending" />
-            <el-option label="审理中" value="active" />
-            <el-option label="结案" value="closed" />
-            <el-option label="归档" value="archived" />
+            <el-option label="待立案" value="PENDING_FILING" />
+            <el-option label="审理中" value="ACTIVE" />
+            <el-option label="结案" value="CLOSED" />
+            <el-option label="归档" value="ARCHIVED" />
           </el-select>
         </el-form-item>
 
         <el-form-item label="案件等级">
           <el-select v-model="filterForm.level" placeholder="请选择" clearable style="width: 120px">
-            <el-option label="重要" value="重要" />
-            <el-option label="一般" value="一般" />
-            <el-option label="次要" value="次要" />
+            <el-option label="重要" value="IMPORTANT" />
+            <el-option label="一般" value="GENERAL" />
+            <el-option label="次要" value="MINOR" />
           </el-select>
         </el-form-item>
 
@@ -271,6 +282,8 @@ import {
 import PageHeader from '@/components/PageHeader.vue'
 import DataTable from '@/components/DataTable.vue'
 import { getStagesByCaseType } from '@/config/case-lifecycle'
+import { getUserList } from '@/api/user'
+import { useUserStore } from '@/stores/user'
 import {
   getCaseList,
   deleteCase,
@@ -283,6 +296,9 @@ import {
 
 const router = useRouter()
 const route = useRoute()
+const userStore = useUserStore()
+
+const quickFilter = ref('all')
 
 // 筛选表单
 const filterForm = reactive({
@@ -307,11 +323,20 @@ const pageSize = ref(20)
 const selectedCases = ref([])
 
 // 律师列表
-const lawyerList = ref([
-  { id: 1, name: '张律师' },
-  { id: 2, name: '李律师' },
-  { id: 3, name: '王律师' }
-])
+const lawyerList = ref([])
+
+const fetchLawyerList = async () => {
+  try {
+    const res = await getUserList({ page: 1, size: 200 })
+    const records = res.data?.records || res.data || []
+    lawyerList.value = records.map((u) => ({
+      id: u.id,
+      name: u.realName || u.username
+    }))
+  } catch (e) {
+    console.error('获取律师列表失败', e)
+  }
+}
 
 // 法院列表
 const courtList = ref([])
@@ -333,10 +358,13 @@ const fetchCaseList = async () => {
       court: filterForm.court,
       clientId: filterForm.clientId,
       startDate: filterForm.dateRange?.[0] || null,
-      endDate: filterForm.dateRange?.[1] || null
+      endDate: filterForm.dateRange?.[1] || null,
+      quickFilter: ['pending_approval', 'pending_intake'].includes(quickFilter.value)
+        ? quickFilter.value
+        : undefined
     }
     const res = await getCaseList(params)
-    caseList.value = res.data?.records || []  // 后端PageResult的data字段包含records
+    caseList.value = res.data?.records || []
     total.value = res.data?.total || 0
   } catch (error) {
     ElMessage.error('获取案件列表失败')
@@ -451,7 +479,22 @@ const handleSearch = () => {
 }
 
 // 重置
+const handleQuickFilterChange = (val) => {
+  filterForm.status = ''
+  filterForm.ownerId = ''
+  if (val === 'draft') {
+    filterForm.status = 'PENDING_FILING'
+  } else if (val === 'mine') {
+    filterForm.ownerId = userStore.userId || ''
+  } else if (val === 'pending_approval' || val === 'pending_intake') {
+    filterForm.status = 'PENDING_FILING'
+  }
+  currentPage.value = 1
+  fetchCaseList()
+}
+
 const handleReset = () => {
+  quickFilter.value = 'all'
   Object.assign(filterForm, {
     caseType: '',
     status: '',
@@ -650,6 +693,7 @@ const handleBatchAction = async (command) => {
 }
 
 onMounted(() => {
+  fetchLawyerList()
   // 检查是否有客户筛选参数
   if (route.query.clientId) {
     filterForm.clientId = route.query.clientId
@@ -665,6 +709,14 @@ onMounted(() => {
 
 <style scoped lang="scss">
 .case-list {
+  .quick-filter-bar {
+    margin-bottom: 12px;
+    padding: 12px 20px;
+    background: #fff;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  }
+
   .filter-section {
     background-color: #fff;
     padding: 20px;

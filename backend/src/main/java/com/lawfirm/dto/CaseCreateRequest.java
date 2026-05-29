@@ -205,6 +205,11 @@ public class CaseCreateRequest {
      */
     private String feeRemark;
 
+    /**
+     * 保存为草稿（待立案），不生成正式办案待办
+     */
+    private Boolean saveAsDraft;
+
     @Data
     public static class ReceivableRequest {
         private String name;

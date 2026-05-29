@@ -1,6 +1,7 @@
 # 卷宗录入 + 案件流程 验收清单
 
-> 手工冒烟测试（约 15 分钟）。前置：后端 `dev` 配置、前端已登录、至少 1 个民事案件。
+> 手工冒烟测试（约 15 分钟）。前置：后端 `dev` 配置、`backend/.env` 已配置 `ZHIPU_API_KEY`、`LAWFIRM_AI_MODE=cloud-glm`、前端已登录、至少 1 个民事案件。  
+> PRD v2.2 见 [PRD.md](../PRD.md)；自动化测试报告见 [PRD_V2.2_TEST_REPORT.md](./PRD_V2.2_TEST_REPORT.md)。
 
 ## 1. 卷宗智能录入（主工作台）
 
@@ -37,6 +38,14 @@
 |---|------|------|
 | 4.1 | `GET /api/agent/runtime/status` | `activeProvider` 为 builtin（或已配置的 OpenClaw/Hermes） |
 | 4.2 | 外部 Agent 不可达 | 分析仍完成（回退 builtin） |
+
+## 自动化对应用例（v2.4）
+
+| 清单项 | 自动化 |
+|--------|--------|
+| 1.1–1.2 | `npm run test:e2e:api`（API）；`npm run test:e2e:ui` 工作台卷宗面板可见 |
+| 1.3b+ | 手工 + 可选 `E2E_RUN_INTAKE=1` → `npm run test:e2e:nightly` |
+| 全站 API | `npm run test:e2e:regression` |
 
 ## 回归注意
 

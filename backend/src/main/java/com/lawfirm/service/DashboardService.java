@@ -3,6 +3,7 @@ package com.lawfirm.service;
 import com.lawfirm.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -31,6 +32,7 @@ public class DashboardService {
     /**
      * 获取工作台统计数据
      */
+    @Cacheable(value = "statistics", key = "'dashboard:' + #userId")
     public Map<String, Object> getDashboardStats(Long userId) {
         Map<String, Object> stats = new HashMap<>();
 

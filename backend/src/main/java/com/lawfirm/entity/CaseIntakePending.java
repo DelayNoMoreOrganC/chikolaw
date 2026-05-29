@@ -3,7 +3,13 @@ package com.lawfirm.entity;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-import javax.persistence.*;
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.Lob;
+import javax.persistence.Table;
 
 /**
  * 卷宗录入未匹配案件时的暂存文件（待关联案件或立案审批通过后挂接）。
@@ -34,7 +40,8 @@ public class CaseIntakePending extends LogicalDeleteEntity {
     private Long fileSize;
 
     /** 识别结果 JSON */
-    @Column(name = "recognition_json", columnDefinition = "CLOB")
+    @Lob
+    @Column(name = "recognition_json")
     private String recognitionJson;
 
     @Column(length = 500)

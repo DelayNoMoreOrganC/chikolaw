@@ -51,19 +51,26 @@ const getErrorMessage = (code, message) => {
 }
 
 /**
- * 显示错误提示
- * @param {string} message - 错误信息
- * @param {number} code - 错误码
- * @param {string} type - 消息类型
+ * 显示错误提示（2.5s 内相同文案去重）
  */
+let lastErrorToast = { message: '', at: 0 }
+
 const showError = (message, code, type = 'error') => {
+  const msg = message || '操作失败，请稍后重试'
+  const now = Date.now()
+  if (msg === lastErrorToast.message && now - lastErrorToast.at < 2500) {
+    return
+  }
+  lastErrorToast = { message: msg, at: now }
   ElMessage({
-    message,
+    message: msg,
     type,
     duration: 5000,
     showClose: true
   })
 }
+
+const shouldSkipErrorToast = config => Boolean(config?.skipErrorToast)
 
 /**
  * 处理401未授权错误
@@ -86,21 +93,21 @@ const handleUnauthorized = () => {
  * 处理403禁止访问错误
  */
 const handleForbidden = () => {
-  ElMessage.error('权限不足，禁止访问')
+  showError('权限不足，禁止访问', 403)
 }
 
 /**
  * 处理404资源不存在错误
  */
 const handleNotFound = () => {
-  ElMessage.error('请求的资源不存在')
+  showError('请求的资源不存在', 404)
 }
 
 /**
  * 处理500服务器错误
  */
-const handleServerError = () => {
-  ElMessage.error('服务器内部错误，请稍后重试')
+const handleServerError = message => {
+  showError(message || '服务器内部错误，请稍后重试', 500)
 }
 
 // 创建axios实例
@@ -121,38 +128,42 @@ const longTimeoutService = axios.create({
   }
 })
 
-// 长超时服务也添加token拦截器
-longTimeoutService.interceptors.request.use(
-  config => {
-    const token = localStorage.getItem('token')
-    if (token) {
-      config.headers['Authorization'] = `Bearer ${token}`
-    }
-    return config
-  },
-  error => {
-    return Promise.reject(error)
+const attachAuthHeader = config => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers['Authorization'] = `Bearer ${token}`
   }
-)
+  return config
+}
+
+/** FormData 上传须去掉 application/json，否则后端报 not a multipart request */
+const prepareRequestConfig = config => {
+  attachAuthHeader(config)
+  if (config.data instanceof FormData) {
+    config.headers = config.headers || {}
+    delete config.headers['Content-Type']
+    delete config.headers['content-type']
+  }
+  return config
+}
+
+longTimeoutService.interceptors.request.use(prepareRequestConfig, error => Promise.reject(error))
 
 // 请求拦截器
 service.interceptors.request.use(
   config => {
-    // 从localStorage获取token
-    const token = localStorage.getItem('token')
-    if (token) {
-      config.headers['Authorization'] = `Bearer ${token}`
-    }
+    prepareRequestConfig(config)
 
-    // 添加请求时间戳，防止缓存
     if (config.method === 'get') {
-      config.params = {
-        ...config.params,
-        _t: Date.now()
+      // 默认允许浏览器/网关缓存；仅显式 noCache 时加时间戳（减少重复导航的请求量）
+      if (config.noCache) {
+        config.params = {
+          ...config.params,
+          _t: Date.now()
+        }
       }
 
-      // 分页参数对齐：前端从1开始，后端从0开始
-      if (config.params.page && typeof config.params.page === 'number') {
+      if (config.params?.page && typeof config.params.page === 'number') {
         config.params.page = config.params.page - 1
       }
     }
@@ -164,18 +175,16 @@ service.interceptors.request.use(
 
     // 网络错误处理
     if (error.message.includes('Network Error')) {
-      ElMessage.error('网络连接失败，请检查网络设置')
+      showError('网络连接失败，请检查网络设置')
     } else if (error.message.includes('timeout')) {
-      ElMessage.error('请求超时，请稍后重试')
+      showError('请求超时，请稍后重试', 408)
     }
 
     return Promise.reject(error)
   }
 )
 
-// 响应拦截器
-service.interceptors.response.use(
-  response => {
+const onResponseSuccess = response => {
     const responseType = response.config?.responseType
     if (responseType === 'blob' || responseType === 'arraybuffer' || responseType === 'text') {
       return response.data
@@ -186,61 +195,55 @@ service.interceptors.response.use(
     // 如果返回的状态码不是200,则判断为错误
     if (res.code !== 200) {
       const errorMessage = getErrorMessage(res.code, res.message)
+      const config = response.config
 
-      // 显示错误信息
-      showError(errorMessage, res.code)
-
-      // 处理特定错误码
-      if (res.code === 401) {
-        handleUnauthorized()
-      } else if (res.code === 403) {
-        handleForbidden()
-      } else if (res.code === 404) {
-        handleNotFound()
-      } else if (res.code === 500) {
-        handleServerError()
+      if (!shouldSkipErrorToast(config)) {
+        if (res.code === 401) {
+          handleUnauthorized()
+        } else {
+          showError(errorMessage, res.code)
+        }
       }
 
       return Promise.reject(new Error(errorMessage))
     } else {
       return res
     }
-  },
-  error => {
-    console.error('响应错误:', error)
+}
 
-    // 处理HTTP错误状态码
-    if (error.response) {
-      const { status } = error.response
-      const errorMessage = getErrorMessage(status, error.response.data?.message)
+const onResponseError = error => {
+  console.error('响应错误:', error)
+  const config = error.config
 
-      showError(errorMessage, status)
+  if (error.response) {
+    const { status } = error.response
+    const errorMessage = getErrorMessage(status, error.response.data?.message)
 
-      // 处理特定错误码
+    if (!shouldSkipErrorToast(config)) {
       if (status === 401) {
         handleUnauthorized()
-      } else if (status === 403) {
-        handleForbidden()
-      } else if (status === 404) {
-        handleNotFound()
-      } else if (status >= 500) {
-        handleServerError()
-      }
-    } else if (error.request) {
-      // 请求已发出但没有收到响应
-      if (error.message.includes('timeout')) {
-        ElMessage.error('请求超时，请稍后重试')
       } else {
-        ElMessage.error('网络连接失败，请检查网络设置')
+        showError(errorMessage, status)
       }
-    } else {
-      // 请求配置出错
-      ElMessage.error(error.message || '请求配置错误')
     }
-
-    return Promise.reject(error)
+  } else if (error.request) {
+    if (!shouldSkipErrorToast(config)) {
+      if (error.message.includes('timeout')) {
+        showError('请求超时，请稍后重试', 408)
+      } else {
+        showError('网络连接失败，请检查网络设置')
+      }
+    }
+  } else if (!shouldSkipErrorToast(config)) {
+    showError(error.message || '请求配置错误')
   }
-)
+
+  return Promise.reject(error)
+}
+
+// 响应拦截器（普通请求 + AI 长超时请求共用，避免 aiHttp 404 无提示）
+service.interceptors.response.use(onResponseSuccess, onResponseError)
+longTimeoutService.interceptors.response.use(onResponseSuccess, onResponseError)
 
 /**
  * 封装请求方法，自动处理错误
@@ -306,11 +309,13 @@ export const request = async (requestFn, options = {}) => {
 }
 
 /**
- * AI / LLM 相关 HTTP 请求（默认 120s 超时，避免本地模型或 Vision 较慢时误报超时）
- * @param {import('axios').AxiosRequestConfig} config
+ * AI / LLM 相关 HTTP 请求（默认 120s 超时；默认由页面内联展示错误，避免与 ElMessage 重复）
  */
 export function aiHttp(config) {
-  return longTimeoutService(config)
+  return longTimeoutService({
+    skipErrorToast: true,
+    ...config
+  })
 }
 
 export default service

@@ -3,8 +3,23 @@ document:
   preview:
     max-bytes: 15728640  # 15MB
 
+lawfirm:
+  # v2.2: cloud-glm（全量智谱 GLM）；v3.0: hybrid + llm.routing.* 切本地
+  ai:
+    mode: ${LAWFIRM_AI_MODE:cloud-glm}
+  performance:
+    tomcat:
+      max-threads: 200
+      min-spare-threads: 20
+      accept-count: 100
+      max-connections: 10000
+
 server:
   port: 8080
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain,application/javascript,text/css
+    min-response-size: 1024
   servlet:
     context-path: /api
     encoding:
@@ -18,6 +33,8 @@ server:
     uri-encoding: UTF-8
 
 spring:
+  config:
+    import: optional:file:.env[.properties],optional:file:../.env[.properties]
   application:
     name: lawfirm-backend
 
@@ -126,8 +143,8 @@ crypto:
 ai:
   ocr:
     enabled: ${AI_OCR_ENABLED:true}
-    # 视觉 OCR 建议 deepseek；本地 tesseract 仅文本层提取
-    provider: ${AI_OCR_PROVIDER:tesseract}
+    # zhipu=智谱 GLM 视觉（Coding Plan）；deepseek / tesseract 为备选
+    provider: ${AI_OCR_PROVIDER:zhipu}
     # DeepSeek 扫描版 PDF：分页渲染为图再调 Vision（控制成本）
     pdf-vision-max-pages: ${AI_OCR_PDF_VISION_MAX_PAGES:5}
     pdf-vision-dpi: ${AI_OCR_PDF_VISION_DPI:120}
@@ -154,6 +171,13 @@ ai:
 
 # LLM API通用配置
 llm:
+  zhipu:
+    api-key: ${ZHIPU_API_KEY:${GLM_CODING_API_KEY:}}
+    base-url: ${ZHIPU_BASE_URL:https://open.bigmodel.cn/api/coding/paas/v4}
+    chat-model: ${GLM_CHAT_MODEL:glm-4.7}
+    vision-model: ${GLM_VISION_MODEL:glm-4.6v}
+    max-tokens: ${GLM_MAX_TOKENS:8192}
+    temperature: ${GLM_TEMPERATURE:0.3}
   # DeepSeek配置
   deepseek:
     api-key: ${DEEPSEEK_API_KEY:your-deepseek-api-key}
@@ -176,19 +200,19 @@ llm:
     temperature: 0.7
   # 本地模型不可用时自动降级到云端
   fallback:
-    enabled: ${LLM_FALLBACK_ENABLED:true}
-    provider: ${LLM_FALLBACK_PROVIDER:deepseek}
-  # 各业务首选 provider（库中 ai_config.provider_type，如 lmstudio / deepseek）
+    enabled: ${LLM_FALLBACK_ENABLED:false}
+    provider: ${LLM_FALLBACK_PROVIDER:zhipu}
+  # 各业务首选 provider（库中 ai_config.provider_type：zhipu / glm / deepseek）
   routing:
-    legal-chat: ${LLM_ROUTE_LEGAL_CHAT:lmstudio}
-    rag: ${LLM_ROUTE_RAG:lmstudio}
-    document: ${LLM_ROUTE_DOCUMENT:lmstudio}
-    general-chat: ${LLM_ROUTE_GENERAL_CHAT:lmstudio}
-    extract: ${LLM_ROUTE_EXTRACT:lmstudio}
-    document-recognition-extract: ${LLM_ROUTE_DOC_EXTRACT:lmstudio}
-    legacy-document: ${LLM_ROUTE_LEGACY_DOCUMENT:lmstudio}
+    legal-chat: ${LLM_ROUTE_LEGAL_CHAT:zhipu}
+    rag: ${LLM_ROUTE_RAG:zhipu}
+    document: ${LLM_ROUTE_DOCUMENT:zhipu}
+    general-chat: ${LLM_ROUTE_GENERAL_CHAT:zhipu}
+    extract: ${LLM_ROUTE_EXTRACT:zhipu}
+    document-recognition-extract: ${LLM_ROUTE_DOC_EXTRACT:zhipu}
+    legacy-document: ${LLM_ROUTE_LEGACY_DOCUMENT:zhipu}
   # 超时配置（毫秒）
-  timeout: 30000
+  timeout: ${LLM_TIMEOUT:180000}
   # 重试次数
   retry: 3
 

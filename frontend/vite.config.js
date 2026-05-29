@@ -5,6 +5,9 @@ import { resolve } from 'path'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [vue()],
+  optimizeDeps: {
+    include: ['vue', 'vue-router', 'pinia', 'element-plus', '@element-plus/icons-vue', 'axios', 'dayjs']
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src')
@@ -34,7 +37,7 @@ export default defineConfig({
           // PDF相关库单独打包（按需加载）
           'pdf-vendor': ['vue-pdf-embed'],
           // AI相关库单独打包
-          'ai-vendor': ['@/api/ai']
+          'echarts': ['echarts']
         }
       }
     }

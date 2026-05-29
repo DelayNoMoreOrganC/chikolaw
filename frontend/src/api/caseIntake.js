@@ -17,7 +17,6 @@ export function processCaseIntake(file, options = {}) {
     url: '/case-intake/process',
     method: 'post',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 180000
   })
 }
@@ -33,7 +32,6 @@ export function attachCaseIntake(file, caseId, remark) {
     url: '/case-intake/attach',
     method: 'post',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000
   })
 }
@@ -50,7 +48,6 @@ export function attachCaseIntakeFromPending(pendingId, caseId, remark) {
     url: '/case-intake/attach-pending',
     method: 'post',
     data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000
   })
 }
@@ -62,11 +59,10 @@ export function createCaseFilingApplication(pendingId, options = {}) {
   if (options.title) formData.append('title', options.title)
   if (options.content) formData.append('content', options.content)
   if (options.approverId) formData.append('approverId', options.approverId)
-  return request({
+  return aiHttp({
     url: '/case-intake/filing-application',
     method: 'post',
-    data: formData,
-    headers: { 'Content-Type': 'multipart/form-data' }
+    data: formData
   })
 }
 

@@ -1,0 +1,29 @@
+[Unit]
+Description=Law Firm Case Management Backend (Spring Boot)
+After=network.target mysql.service redis-server.service
+Wants=mysql.service redis-server.service
+
+[Service]
+Type=simple
+User=lawfirm
+Group=lawfirm
+WorkingDirectory=/opt/lawfirm/app/backend
+EnvironmentFile=/etc/lawfirm/lawfirm.env
+
+# JAR 路径与 pom.xml version 一致
+ExecStart=/usr/bin/java -Xms512m -Xmx1024m -jar /opt/lawfirm/app/backend/target/lawfirm-backend-2.0.0.jar
+
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=10
+
+# 日志走 journald：journalctl -u lawfirm-backend -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lawfirm-backend
+
+# 限制句柄（上传较多时可酌情调高）
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

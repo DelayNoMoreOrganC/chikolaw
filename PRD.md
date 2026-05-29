@@ -1,14 +1,18 @@
-# 律所智能案件管理系统 PRD v2.1
+# 律所智能案件管理系统 PRD v2.4
 
 > **产品代号**：ZGAI LawOS（对内仓库 `D:\ZGAI`）  
 > **唯一需求基准**：产品范围、模块规格、数据模型、**视觉与交互规范**以本文档为准。  
 > **实现进度**：见附录 A「实现状态矩阵」；设计落地见附录 B；运行时快照见 [`CURRENT_STATUS.md`](CURRENT_STATUS.md)。  
+> **AI 策略（v2.2）**：见 §4.7 与 [`docs/AI_V2.2_GLM.md`](docs/AI_V2.2_GLM.md)；接入说明见 [`docs/GLM_CODING_PLAN_SETUP.md`](docs/GLM_CODING_PLAN_SETUP.md)。  
 > **历史进度文档**（如 `PRD功能清单.md`、`PRD开发任务列表.md`）已归档至 [`archive/reports/`](archive/reports/)，不得与本文档结论冲突。
 
 ### 变更记录
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v2.4 | 2026-05-28 | **AI Hub 三步向导**（上传→意图→结果）；**文书 docx 全链路**（`useDocumentExport`）；案件 doc 跳转 AI 中心；识别/生成**统一错误提示**；E2E UI + nightly 卷宗 API |
+| v2.3 | 2026-05-28 | **工作台周视图 + AI 副驾**；卷宗四意图；**立案审批→确认建案**闭环；**案件开庭/审限↔日程双向同步**；案件列表 `quickFilter` 服务端筛选；日程/工作台共享日历与待办组件；**下线遗留 OCR 模拟接口** |
+| v2.2 | 2026-05-27 | **AI 全量智谱 GLM**（`lawfirm.ai.mode=cloud-glm`）；卷宗录入错误透出；工作台去重（文书识别/待办自动化统一至 AI 智能中心）；识别 API 支持 docx/50MB；v3.0 预留 `hybrid` 本地模型切换 |
 | v2.1 | 2026-05-26 | 融合 **Alpha 律师工作系统** + **案件云** 产品范式；新增 §2.2 macOS 风蓝灰科技视觉规范；附录 B 对标矩阵；附录 A 同步真实差距（部分/MVP） |
 | v2.0 | 2026-05-25 | 对齐当前实现：环境分层技术栈、17 项导航与 P2 扩展模块、AI 模型路由与可观测性、角色/审批枚举统一、实现状态矩阵附录 |
 | v1.0 | 2026-04-17 | 初版：案件云分析 + 四方方案整合 |
@@ -26,7 +30,7 @@
 | **Alpha 律师工作系统** | 专业蓝白视觉、工作台信息密度、法律 AI 入口聚合、可信感与品牌气质 | 顶栏 AI 助手、AI 智能中心、文书识别/生成、蓝灰科技 UI（§2.2） |
 | **案件云** | 案件进度可视化、工作台日历/待办一体、审限与开庭 chroma 标签、收案与卷宗效率 | Dashboard 五色日历、待办逾期规则、卷宗智能录入、生命周期进度条、类案检索 |
 
-**核心差异化**：以 **AI 文书智能识别（IDP）+ 局域网可部署 LLM 路由** 为引擎，实现录入自动化、卷宗标准化、审批与行政 OA 一体化；数据不出所（私有化 H2/MySQL + MinIO）。
+**核心差异化**：以 **AI 文书智能识别（IDP）+ 智谱 GLM Coding Plan（v2.2 默认全链路）** 为引擎，实现录入自动化、卷宗标准化、审批与行政 OA 一体化；数据不出所（私有化 H2/MySQL + MinIO）。**v3.0** 将通过 `LAWFIRM_AI_MODE=hybrid` 接入 LM Studio / Ollama 等本地模型（配置已预留，见 §4.7）。
 
 **视觉定位（v2.1）**：**macOS 风格交互骨架** + **蓝灰科技色调**（冷静、专业、低饱和），替代 v1.0 高饱和紫渐变为主视觉的方案（见 §2.2 迁移说明）。
 
@@ -71,10 +75,11 @@
 | 数据库 | **H2 文件库**（`jdbc:h2:file:./data/lawfirm`，MySQL 兼容模式） | **MySQL 8.0**（`pom.xml` 已预留驱动，切换 `spring.datasource`） |
 | 缓存 | **默认禁用** Redis 自动配置；登录锁定等用内存 `LoginAttemptCache` | **Redis 可选**（会话/分布式锁等按需启用） |
 | 文件存储 | **MinIO + 本地 fallback**（`minio.*` + `file.upload-path`） | 同左，建议 MinIO 集群 |
-| AI 接入 | **多 Provider**：DeepSeek、通义千问、**LM Studio**（OpenAI 兼容）、历史 Ollama 配置 | 同左，密钥经环境变量注入 |
-| AI 路由 | `llm.routing.*` 按场景指定首选 Provider；`llm.fallback` 云端降级 | 同左 |
-| 向量检索 | **Qdrant**（`application.yml` qdrant 段，可选）；RAG MVP 亦支持 TF-IDF | 生产建议启用 Qdrant |
-| OCR | **双路径**（见 §4.1）：① `AIDocumentService` — DeepSeek Vision / Tesseract；② `OcrService` — 模拟数据（遗留，待合并或标注废弃） | 生产以 Vision + LLM 提取为准 |
+| AI 接入（v2.2） | **智谱 GLM Coding Plan**（`ZHIPU_API_KEY` + `coding/paas/v4` 端点）；对话/视觉/抽取默认 `glm-4.7` / `glm-4.6v` | 同左 |
+| AI 模式 | `lawfirm.ai.mode`：`cloud-glm`（v2.2 默认，强制 zhipu）/ `hybrid`（v3.0 本地+降级） | 见 §4.7 |
+| AI 路由 | `llm.routing.*` 七场景；`cloud-glm` 下全部由 `AIModelRoutingService` 解析为 zhipu | v3.0 可按场景指定 `lmstudio` 等 |
+| 向量检索 | **阿里云 Embedding** `text-embedding-v3`（类案/RAG 召回）；**Qdrant** 可选 | 对话生成仍走 GLM |
+| OCR | `ai.ocr.provider=zhipu` → GLM 视觉；Word/TXT **先本地抽文本**再 LLM 抽取（§4.1） | v2.3 已移除 `OcrService` / `/api/ocr/*`；统一 `POST /api/ai/documents/recognize` |
 | 本地缓存 | Caffeine（业务热点） | 同左 |
 
 **不再作为唯一方案的技术（v1.0 遗留表述）**：PaddleOCR 未接入；Redis/MySQL 在 PRD 中改为「按环境选型」而非写死。
@@ -218,22 +223,21 @@ v1.0 定义的 P0/P1 核心业务模块，均已实现：
 
 > **视觉（v2.1）**：页面遵循 §2.2 蓝灰底 + 白卡片；日历保留案件云五色标签；统计区采用扁平科技蓝图标，避免高饱和渐变横幅。
 
-#### 1.1 页面结构
+#### 1.1 页面结构（v2.2）
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  统计卡片区（5个）                                  │
-│  [本月案件数] [进行中] [本月开庭] [待办数] [本月收费] │
+│  卷宗智能录入（首屏）→ GLM 分析 → 归入已有卷宗        │
+├──────────────────────────────────────────────────┤
+│  欢迎条 + KPI │ 统计卡片区（5个）                   │
 ├───────────────────────────┬──────────────────────┤
-│   日历视图区               │   待办事项区           │
-│   月/周切换                │   按紧急程度排序        │
-│   彩色标签标注开庭/审限等    │   3天内标红            │
-│   点击标签弹出案件摘要      │   7天内标橙            │
-│                           │   逾期置顶             │
+│   日历（月/周、五色、筛选）  │   待办 + 跳转 AI 中心  │
 ├───────────────────────────┴──────────────────────┤
 │  快捷入口：[新建案件] [新建客户] [AI助手] [上传文书]  │
 └──────────────────────────────────────────────────┘
 ```
+
+> **v2.2**：工作台不再提供第二套文书上传；识别/待办自动化统一在 `/ai-hub`（§4.8）。
 
 #### 1.2 统计卡片
 
@@ -278,17 +282,19 @@ v1.0 定义的 P0/P1 核心业务模块，均已实现：
 搜索范围：案件名称、案号、当事人姓名、手机号、客户名  
 交互：输入即搜索（debounce 300ms），**跳转 `/search` 独立结果页**（对标 Alpha 顶栏搜索；**不实现** v1.0 下拉浮层，见附录 A）
 
-#### 1.6 工作台增强（v2.0+ 已交付，v2.1 视觉待收敛）
+#### 1.6 工作台增强（v2.2）
 
 | 能力 | 状态 | 说明 |
 |------|------|------|
-| 统计卡片趋势/跳转/刷新 | 已实现 | 对标案件云 KPI；5 分钟刷新 + 可见页轮询 |
-| 日历月/周 + 五色标签 | 已实现 | 对标案件云 chroma 规则（§2.2.1） |
+| 卷宗智能录入（首屏） | 已实现 | `CaseFileIntakePanel`；`POST /case-intake/*`；GLM OCR+抽取；FAILED/NEEDS_CASE 分态提示 |
+| 立案审批桥接 | 已实现 | `CASE_FILING` → 草稿案件 + `attach-pending`；见 [`docs/INTAKE_FLOW_E2E_CHECKLIST.md`](docs/INTAKE_FLOW_E2E_CHECKLIST.md) |
+| 统计卡片趋势/跳转/刷新 | 已实现 | 5 分钟刷新 + 可见页轮询 |
+| 日历月/周 + 五色标签 | 已实现 | §2.2.1 chroma |
 | 待办逾期置顶与 chroma 字色 | 已实现 | 3 天红 / 7 天橙 |
-| 卷宗智能录入 | 已实现 | `CaseFileIntakePanel` + 立案审批桥接 |
 | 日历多维筛选 | 已实现 | 类型/状态/主办/法院 |
+| 文书识别快捷入口 | 已实现 | 待办区引导至 `/ai-hub`（v2.2 去重） |
 | 快捷操作四宫格 | 已实现 | 新建案件/客户、AI 助手、上传文书 |
-| macOS 风欢迎区与全站 Token | **部分** | `theme-lawos.scss` 已接入；Dashboard 欢迎条已收敛，见附录 A.4 |
+| macOS 风欢迎区与全站 Token | **部分** | 见附录 A.4 |
 
 ---
 
@@ -523,18 +529,29 @@ v1.0 定义的 P0/P1 核心业务模块，均已实现：
 
 ### 模块4：AI 智能辅助
 
-#### 4.1 OCR 与要素提取（双路径）
+> **v2.2 基线**：所有对话、文书生成、识别抽取、卷宗 OCR 默认 **智谱 GLM**；配置与验收见 [`docs/AI_V2.2_GLM.md`](docs/AI_V2.2_GLM.md)。
 
-**生产路径（推荐）** — `AIDocumentService` + `LlmExtractService`：
+#### 4.1 OCR 与要素提取
 
-1. 上传文书（图片/PDF；PDF 可分页渲染后调 Vision，见 `ai.ocr.pdf-vision-max-pages`）
-2. OCR：`ai.ocr.provider` = `deepseek`（Vision）或 `tesseract`（本地文本层）
-3. LLM 要素提取：场景 `EXTRACT` / `DOCUMENT_RECOGNITION_EXTRACT`（见 §4.5）
-4. 前端展示 JSON → 人工校验 → 确认回填表单 → 原件归入案件文档
+**生产路径** — `EmbeddedAgentService`（卷宗）/ `AIDocumentService`（识别中心、案件 doc Tab）：
 
-**遗留路径** — `POST /api/ai/ocr-upload`（`OcrService`）：返回**模拟数据**，仅用于联调/demo，与生产路径并存，计划合并或标注废弃。
+1. 上传文书：**PDF / 图片 / docx / txt**（识别 API 与卷宗录入均支持，单文件 ≤50MB）
+2. **文本优先**：docx/txt 经 `DocumentTextExtractService` 本地抽文本，足够长度则跳过视觉 OCR
+3. **扫描件 OCR**：`ai.ocr.provider=zhipu` → GLM 视觉 `glm-4.6v`（PDF 分页上限 `pdf-vision-max-pages`）
+4. **要素抽取**：`DOCUMENT_RECOGNITION_EXTRACT` / `EXTRACT` → GLM `glm-4.7` 输出 JSON
+5. 人工校验 → 回填表单 / 归入卷宗 / 执行业务自动化（见 §4.8）
 
-**LLM 提取字段（与 v1.0 Prompt 一致）**：案号、法院、开庭时间/地点、法官、书记员、原被告、案由、联系电话、文书类型等，输出 JSON。
+**已移除（v2.3）** — `POST /api/ai/ocr-upload`、`/api/ocr/*`：请使用 `POST /api/ai/documents/recognize` 与 `GET /api/ai/diagnostics`。
+
+**提取字段**：案号、法院、开庭时间/地点、法官、书记员、原被告、案由、联系电话、文书类型等。
+
+**卷宗录入状态机**：
+
+| 状态 | 含义 | 用户操作 |
+|------|------|----------|
+| `SUCCESS` | 已匹配案件并归档 | 打开卷宗 Tab |
+| `NEEDS_CASE` | 未匹配案号 | 选择案件 → `attach-pending` 或立案审批 |
+| `FAILED` | API/存储失败 | 检查 `ZHIPU_API_KEY`、日志、重试 |
 
 #### 4.2 AI 文书生成
 
@@ -579,17 +596,38 @@ v1.0 定义的 P0/P1 核心业务模块，均已实现：
 | DOCUMENT_RECOGNITION_EXTRACT | 文档识别结构化抽取 | `llm.routing.document-recognition-extract` |
 | LEGACY_DOCUMENT | 兼容旧版文书生成 | `llm.routing.legacy-document` |
 
-Provider 类型示例：`deepseek`、`qwen`、`lmstudio`（OpenAI 兼容本地模型）。库表 `ai_config.provider_type` 可覆盖默认。
+Provider 类型（代码保留，v2.2 默认仅用 `zhipu`/`glm`/`zai`）：`deepseek`、`qwen`、`lmstudio`、`ollama` 供 v3.0 `hybrid` 模式。
 
-**降级策略**：`llm.fallback.enabled=true` 时，本地/LM Studio 失败后由 `LLMApiService` 按 `llm.fallback.provider` 重试云端（默认 deepseek），`llm.retry` 控制次数。
+**降级策略（v2.2）**：`cloud-glm` 下 `llm.fallback.enabled=false`，且 `LLMApiService` 不触发跨 Provider 降级。**v3.0 hybrid** 可启用 fallback，默认降级目标 `zhipu`。
 
 #### 4.6 AI 可观测性
 
-管理员/主任可查看路由与最近调用摘要：
+- 接口：`GET /api/ai/diagnostics`
+- 内容：`lawfirmAiMode`、`cloudGlm`、`ocrProvider`、各场景 Provider 解析、`recentLlmCalls`
+- Agent：`GET /api/agent/runtime/status`（`activeProvider` 默认 `builtin` = 内置 GLM 链路）
+- 配置：`GET/PUT /api/ai/config`；启动时 `ZhipuAiConfigEnsurer` 同步 `.env` 密钥
 
-- 接口：`GET /api/ai/diagnostics`（`AiDiagnosticsController`）
-- 内容：各场景解析后的 Provider、fallback 配置、`LlmRecentCallSnapshot` 最近调用列表
-- 配置：`GET/PUT /api/ai/config`（含按场景 Provider）
+#### 4.7 v2.2 / v3.0 AI 运行模式
+
+| 模式 | 环境变量 | 行为 |
+|------|----------|------|
+| **cloud-glm**（v2.2 默认） | `LAWFIRM_AI_MODE=cloud-glm` | 七场景强制 zhipu；无 LLM fallback |
+| **hybrid**（v3.0 预留） | `LAWFIRM_AI_MODE=hybrid` | 按 `llm.routing.*` + `ai_config`；可配 `lmstudio` + fallback |
+
+**非 GLM 组件（v2.2 仍保留）**：RAG/类案 **向量嵌入** 使用阿里云 `text-embedding-v3`（仅召回，生成答案仍走 GLM）。
+
+#### 4.8 AI 功能入口矩阵（v2.2）
+
+| 用户目标 | 唯一推荐入口 | API |
+|----------|--------------|-----|
+| 归入已有案件卷宗 | 工作台 · 卷宗智能录入 | `POST /case-intake/process` 等 |
+| 识别文书 + 创建待办/日程 | AI 智能中心 `/ai-hub` | `POST /ai/documents/recognize`（`executeBusinessLogic=true`） |
+| 新建案件表单预填 | AI 中心「创建案件」或案件 create · 文书智能识别填充 | recognize + `sessionStorage` / `AIDocumentFill` |
+| 案件内识别/生成 | 案件详情 · 文档 Tab | recognize + `/ai/generate-doc` |
+| 法律咨询 / 知识问答 | 顶栏 AI 助手、`/knowledge/rag` | `/ai/assist`、`/knowledge/rag/search` |
+| 案件分析 / 类案 | 案件详情、`/case-search` | `/cases/{id}/ai-analysis`、`/case-search/similar` |
+
+**禁止**：在工作台重复提供与卷宗录入同文件的第二套上传（v2.1 已移除「AI 智能创建」拖拽区）。
 
 ---
 
@@ -738,7 +776,7 @@ GET/POST /api/cases | GET/PUT/DELETE /api/cases/:id | PUT /api/cases/:id/status 
 CRUD /api/calendar | CRUD /api/todos
 
 ### 5.4 AI
-POST /api/ai/ocr-upload（遗留模拟） | POST /api/ai/extract | POST /api/ai/auto-fill/:caseId | POST /api/ai/generate-doc | POST /api/ai/chat | POST /api/ai/case-chat/:caseId | GET /api/ai/logs | GET/PUT /api/ai/config | **GET /api/ai/diagnostics**
+POST /api/ai/documents/recognize | POST /api/ai/extract | POST /api/ai/auto-fill/:caseId | POST /api/ai/generate-doc | POST /api/ai/chat | POST /api/ai/case-chat/:caseId | GET /api/ai/logs | GET/PUT /api/ai/config | **GET /api/ai/diagnostics**
 
 ### 5.4.1 批量案件
 POST /api/cases/batch-import（批量收案，与 `/case/batch-import` 页面对应）
@@ -839,14 +877,18 @@ RAG 知识库 / 法律检索 / AI 智能中心 / 类案检索 / 工具集 + AC �
 
 | 模块 | 项 | 状态 | 备注 |
 |------|-----|------|------|
-| AI | 模型路由 7 场景 | 超出 | §4.5 |
-| AI | diagnostics API | 超出 | §4.6 |
-| AI | Vision OCR + 提取 | 已实现 | |
-| AI | ocr-upload 模拟 | 已实现 | @Deprecated；统一 `/ai/documents/recognize` |
-| AI | 文书生成四类 | 部分 | 流程已实现；输出为文本/txt，非 PRD Word 初稿 |
-| 视觉 | macOS 蓝灰 Design Token | 部分 | §2.2 已定义；全站收敛见附录 A.4 |
-| AI | RAG /legal-chat | 已实现 | LM Studio + fallback |
-| AI | 类案/案件分析语义化 | 已实现 | 文本加权 + `case-search.semantic` Embedding；`GET /cases/{id}/ai-analysis` LLM 分析 |
+| AI | v2.2 全链路 GLM（cloud-glm） | 已实现 | `LawfirmAiProperties` + 强制 zhipu 路由；见 §4.7 |
+| AI | 模型路由 7 场景 | 已实现 | §4.5；diagnostics 可验 |
+| AI | diagnostics API | 已实现 | 含 `lawfirmAiMode`、`ocrProvider` |
+| AI | GLM Vision OCR + 文本抽取 | 已实现 | zhipu；docx 本地抽文本 |
+| AI | 卷宗录入 FAILED 透出 | 已实现 | 不再吞掉 `AIServiceException` |
+| AI | 工作台入口去重 | 已实现 | 识别/待办 → `/ai-hub` |
+| AI | ocr-upload 模拟 | 已移除 | v2.3 |
+| AI | 文书生成四类 | 部分 | LLM 输出 txt；`.docx` 待 v2.3+ |
+| 视觉 | macOS 蓝灰 Design Token | 部分 | 附录 A.4 |
+| AI | RAG / legal-chat | 已实现 | 生成：GLM；召回嵌入：阿里云 |
+| AI | 类案/案件分析 | 已实现 | Embedding 可选 + GLM 分析 |
+| AI | v3.0 hybrid 本地模型 | 预留 | `LAWFIRM_AI_MODE=hybrid` + `llm.routing.*` |
 | P2 | 知识库、RAG 页 | 已实现 | Qdrant 可选 |
 | P2 | 类案检索 | 已实现 | `POST /case-search/similar`；前端 `/case-search` 对齐案由/类型/相似度 |
 | P2 | 法律检索 | 已实现 | 法规库+AI问答+类案 Tab 内嵌检索 |
@@ -865,7 +907,47 @@ RAG 知识库 / 法律检索 / AI 智能中心 / 类案检索 / 工具集 + AC �
 | 移动端响应式 | 已实现 | MainLayout `isMobile` + 主要页适配 |
 | 180 天备份 | 已实现 | 自动/手动备份 + `/system/restore` + 设置页 |
 
-### A.4 已知差距（功能与体验，2026-05-26）
+### A.4 v2.4 已交付（2026-05-28）
+
+| 类别 | 项 | 状态 | 说明 |
+|------|-----|------|------|
+| AI | 三步向导（AiUnifiedWizard） | 已实现 | `/ai-hub` 页顶；支持 `?intent=&caseId=` |
+| AI | 文书 docx 全链路 | 已实现 | `useDocumentExport`；AI 中心 + 案件 doc Tab |
+| AI | 识别入口去重 | 已实现 | 案件 doc「智能识别」→ AI Hub；中心内重复上传区移除 |
+| AI | 失败提示与配置指引 | 已实现 | `aiError.js`；GLM 密钥类错误提示 |
+| 测试 | E2E UI + API 回归 | 已实现 | `test:e2e:ui` / `test:e2e:regression` |
+
+### A.5 v2.3 已交付（2026-05-28）
+
+| 类别 | 项 | 状态 | 说明 |
+|------|-----|------|------|
+| 工作台 | 周视图 + 今日条 + 统计折叠 | 已实现 | `dashboard/index.vue` + `CalendarWeekView` |
+| 卷宗 | 四意图录入 | 已实现 | `CaseFileIntakePanel`：挂接/预填/待办/识别 |
+| 案件 | 立案审批→确认建案 | 已实现 | `filingApprovalId` + `confirm-establishment` |
+| 案件 | 列表 quickFilter | 已实现 | `pending_approval` / `pending_intake` |
+| 日程 | 案件日期双向同步 | 已实现 | `CaseCalendarSyncService` |
+| 日程 | 共享待办侧栏 | 已实现 | `TodoPanelCompact`（工作台+日程页） |
+| AI | 工作台副驾 | 已实现 | `CalendarCopilotStrip` |
+| 清理 | 遗留 OCR 模拟 | 已移除 | v2.3 |
+
+### A.6 已知差距（功能与体验，2026-05-28 · v2.4）
+
+| 类别 | 项 | 状态 | 说明 |
+|------|-----|------|------|
+| AI | 智谱 Embedding 替换阿里云 | 未实现 | v3.0 评估 |
+| AI | 卷宗录入 E2E 全链路（含 GLM） | 部分 | `E2E_RUN_INTAKE=1` + `test:e2e:nightly` |
+| 工作台 | 嵌入月/日视图 | 未实现 | v2.5 |
+
+### A.7 已归档差距（v2.1 → v2.2 已关闭）
+
+| 项 | v2.2 处理 |
+|----|-----------|
+| 工作台「AI 智能创建」与卷宗录入重复 | 已移除上传区，引导 AI 中心 |
+| OCR 默认 tesseract / DeepSeek 主路径 | 已改 zhipu + cloud-glm |
+| 卷宗分析失败静默返回占位 | 已改为 FAILED + 前端错误区 |
+| 识别 API 仅 PDF/10MB | 已扩展 docx/txt/50MB |
+
+### A.8 历史差距（2026-05-26，部分仍开放）
 
 > 附录 A.1–A.3 标「已实现」的模块，下列为 **PRD 目标态 vs 代码现状** 的差异，供排期；不以归档文档「100%」为准。
 
@@ -876,11 +958,11 @@ RAG 知识库 / 法律检索 / AI 智能中心 / 类案检索 / 工具集 + AC �
 | 行政 | 公告/会议详情与取消 | 已实现 | 行政 OA 弹窗/抽屉 |
 | 文档 | 分片/断点续传 | 部分 | 后端 `ChunkedUploadController`；前端未接 |
 | 文档 | 办案记录富文本+附件持久化 | 部分 | 表单有附件 UI，上传管道不完整 |
-| AI | 文书 `.docx` 导出 | 未实现 | 当前 txt |
-| AI | `ocr-upload` 下线 | 部分 | 已 @Deprecated，待移除调用方 |
+| AI | 文书 `.docx` 导出 | 已实现 | v2.4 `export-docx` + `useDocumentExport` |
+| AI | `ocr-upload` 下线 | 已实现 | v2.3 已移除 |
 | AI | RAG/Qdrant 生产默认 | 部分 | TF-IDF MVP；Qdrant 可选 |
 | 日程 | 重复规则 `repeat`↔`repeatRule` | 部分 | 字段映射待对齐 |
-| 日程 | 事件详情页 | 部分 | 点击仅提示，无详情抽屉 |
+| 日程 | 事件详情抽屉 | 已实现 | `CalendarEventDrawer`（工作台/日程页） |
 | 通知 | WebSocket 实时推送 | 未实现 | 轮询 + 通知中心 |
 | P2 | SSB 省时宝 | 未实现 | 占位页 |
 | 行政 | 公告/会议详情与删除 | 部分 | admin-oa TODO |
@@ -893,7 +975,7 @@ RAG 知识库 / 法律检索 / AI 智能中心 / 类案检索 / 工具集 + AC �
 | 用户场景 | 案件云典型能力 | Alpha 典型能力 | 本系统路由/API |
 |----------|----------------|----------------|----------------|
 | 早上打开系统看今天干什么 | 日历 + 待办 + 开庭红色 | 工作台 KPI | `/dashboard`、`/calendar` |
-| 收案/录入 | 批量导入、模板 | 文书识别 | `/case/batch-import`、`CaseFileIntakePanel`、`/ai-hub` |
+| 收案/录入 | 批量导入、模板 | 文书识别 | `/case/batch-import`、工作台 `CaseFileIntakePanel`（卷宗）、`/ai-hub`（识别+待办） |
 | 跟案件进度 | 阶段看板、列表筛选 | 案件分析 | `/case/list`、进度条、`/case-search` |
 | 写文书 | — | 文书生成、模板 | `/ai-hub`、`AIDocGenerator`、`/api/ai/generate-doc` |
 | 问法律问题 | — | 法律 AI 问答 | `/knowledge/rag`、`LegalChatService` |
@@ -904,4 +986,4 @@ RAG 知识库 / 法律检索 / AI 智能中心 / 类案检索 / 工具集 + AC �
 
 ---
 
-*版本：v2.1 | 日期：2026-05-26*
+*版本：v2.4 | 日期：2026-05-28*

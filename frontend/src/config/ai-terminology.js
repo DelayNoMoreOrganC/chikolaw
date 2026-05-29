@@ -104,12 +104,17 @@ export function getDocumentTypeOptions(includeLegacy = true) {
 export function formatAiFunctionType(type) {
   const map = {
     OCR: '文书识别',
+    OCR_RECOGNITION: '文书识别',
     DOCUMENT_RECOGNITION: '文书识别',
     DOCUMENT_GENERATION: '文书生成',
+    DOC_GEN: '文书生成',
+    LEGAL_QA: '法律问答',
+    QA: '法律问答',
     LEGAL_CHAT: '法律问答',
     GENERAL_CHAT: '智能对话',
     RAG: '知识库问答',
-    EXTRACT: '要素提取'
+    EXTRACT: '要素提取',
+    CASE_ANALYSIS: '案情分析'
   }
   return map[type] || type || '-'
 }

@@ -14,6 +14,11 @@ import org.springframework.context.annotation.Configuration;
 public class LLMProperties {
 
     /**
+     * 智谱 GLM Coding Plan（OpenAI 兼容，端点须为 coding/paas/v4）
+     */
+    private ZhipuConfig zhipu = new ZhipuConfig();
+
+    /**
      * DeepSeek配置
      */
     private DeepSeekConfig deepseek = new DeepSeekConfig();
@@ -52,6 +57,21 @@ public class LLMProperties {
      * 重试次数
      */
     private int retry = 3;
+
+    /**
+     * 智谱 GLM Coding Plan
+     */
+    @Data
+    public static class ZhipuConfig {
+        private String apiKey;
+        /** 勿带尾部斜杠；须为 Coding 专属端点 */
+        private String baseUrl = "https://open.bigmodel.cn/api/coding/paas/v4";
+        private String chatModel = "glm-4.7";
+        /** 视觉模型（卷宗 PDF/图片 OCR） */
+        private String visionModel = "glm-4.6v";
+        private int maxTokens = 8192;
+        private double temperature = 0.3;
+    }
 
     /**
      * DeepSeek配置
@@ -95,20 +115,20 @@ public class LLMProperties {
          */
         private boolean enabled = true;
         /**
-         * 云端降级目标（当前建议 deepseek）。
+         * 云端降级目标（纯线上模式建议 zhipu）。
          */
-        private String provider = "deepseek";
+        private String provider = "zhipu";
     }
 
     @Data
     public static class RoutingConfig {
-        private String legalChat = "lmstudio";
-        private String rag = "lmstudio";
-        private String document = "lmstudio";
-        private String generalChat = "lmstudio";
-        private String extract = "lmstudio";
-        private String documentRecognitionExtract = "lmstudio";
+        private String legalChat = "zhipu";
+        private String rag = "zhipu";
+        private String document = "zhipu";
+        private String generalChat = "zhipu";
+        private String extract = "zhipu";
+        private String documentRecognitionExtract = "zhipu";
         /** DocGenerateService 等旧入口 */
-        private String legacyDocument = "lmstudio";
+        private String legacyDocument = "zhipu";
     }
 }

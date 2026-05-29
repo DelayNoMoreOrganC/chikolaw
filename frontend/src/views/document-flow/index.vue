@@ -116,6 +116,12 @@
           </el-timeline>
         </div>
       </div>
+      <template #footer>
+        <el-button @click="detailDialogVisible = false">关闭</el-button>
+        <el-button type="primary" :disabled="!selectedDoc" @click="exportOfficialDoc">
+          导出正文
+        </el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -244,6 +250,29 @@ const getStatusType = (status) => {
 const formatDate = (date) => {
   if (!date) return ''
   return new Date(date).toLocaleString('zh-CN')
+}
+
+const exportOfficialDoc = () => {
+  if (!selectedDoc.value) return
+  const title = (selectedDoc.value.title || '公文').replace(/[\\/:*?"<>|]/g, '_')
+  const body = [
+    `标题：${selectedDoc.value.title || ''}`,
+    `状态：${selectedDoc.value.statusDesc || formatStatus(selectedDoc.value.status)}`,
+    `申请人：${selectedDoc.value.applicantName || ''}`,
+    `申请时间：${formatDate(selectedDoc.value.applyTime)}`,
+    '',
+    '—— 正文 ——',
+    '',
+    selectedDoc.value.content || ''
+  ].join('\n')
+  const blob = new Blob([body], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${title}_${Date.now()}.txt`
+  link.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success('公文已导出')
 }
 
 onMounted(loadDocuments)

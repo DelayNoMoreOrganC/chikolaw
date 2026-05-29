@@ -32,7 +32,7 @@ public class AILogController {
             @RequestParam(defaultValue = "20") int size) {
         Long userId = getCurrentUserId();
         Page<AILog> logs = aiLogService.getUserLogs(userId,
-                PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt")));
+                PageRequest.of(Math.max(0, page - 1), size, Sort.by(Sort.Direction.DESC, "createdAt")));
         return Result.success(logs);
     }
 
@@ -46,7 +46,7 @@ public class AILogController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         Page<AILog> logs = aiLogService.getCaseLogs(caseId,
-                PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt")));
+                PageRequest.of(Math.max(0, page - 1), size, Sort.by(Sort.Direction.DESC, "createdAt")));
         return Result.success(logs);
     }
 
@@ -59,7 +59,7 @@ public class AILogController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         Page<AILog> logs = aiLogService.getAllLogs(
-                PageRequest.of(page - 1, size, Sort.by(Sort.Direction.DESC, "createdAt")));
+                PageRequest.of(Math.max(0, page - 1), size, Sort.by(Sort.Direction.DESC, "createdAt")));
         return Result.success(logs);
     }
 

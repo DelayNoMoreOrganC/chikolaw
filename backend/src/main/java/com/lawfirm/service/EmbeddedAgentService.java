@@ -3,6 +3,7 @@ package com.lawfirm.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lawfirm.config.EmbeddedAgentProperties;
 import com.lawfirm.dto.AIDocumentRecognitionResult;
+import com.lawfirm.exception.AIServiceException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -108,12 +109,11 @@ public class EmbeddedAgentService {
                 }
             }
             return aiDocumentService.recognizeLegalDocument(file, userId, caseId, false);
+        } catch (AIServiceException e) {
+            throw e;
         } catch (Exception e) {
-            log.warn("builtin 分析失败: {}", e.getMessage());
-            AIDocumentRecognitionResult fallback = new AIDocumentRecognitionResult();
-            fallback.setDocumentType("其他");
-            fallback.setOcrText("分析未完成: " + e.getMessage());
-            return fallback;
+            log.error("builtin 分析失败: {}", e.getMessage(), e);
+            throw new AIServiceException("卷宗文书分析失败: " + e.getMessage(), e);
         }
     }
 

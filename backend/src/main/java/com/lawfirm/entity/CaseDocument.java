@@ -48,6 +48,7 @@ public class CaseDocument extends LogicalDeleteEntity {
     @Column
     private String tags;
 
+    @Lob
     @Column(name = "ocr_result")
     private String ocrResult;
 

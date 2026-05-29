@@ -22,6 +22,7 @@ import com.lawfirm.vo.CaseDetailVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -71,7 +72,8 @@ public class CaseIntakePendingService {
         this.objectMapper = objectMapper;
     }
 
-    @Transactional
+    /** 独立事务：暂存失败时不污染卷宗录入主事务 */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Long savePending(MultipartFile file, Long userId, String remark,
                             AIDocumentRecognitionResult recognition) throws IOException {
         Path dir = Paths.get(PENDING_DIR);
@@ -88,13 +90,11 @@ public class CaseIntakePendingService {
         if (recognition != null) {
             pending.setRecognitionJson(objectMapper.writeValueAsString(recognition));
         }
-        pending = pendingRepository.save(pending);
-
         String safeName = sanitize(file.getOriginalFilename());
-        Path target = dir.resolve(pending.getId() + "_" + safeName);
+        Path target = dir.resolve("alloc-" + System.currentTimeMillis() + "_" + safeName);
         Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
         pending.setStoredPath(target.toString());
-        pendingRepository.save(pending);
+        pending = pendingRepository.save(pending);
 
         log.info("卷宗暂存: pendingId={}, file={}", pending.getId(), safeName);
         return pending.getId();

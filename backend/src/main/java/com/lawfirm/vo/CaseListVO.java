@@ -1,5 +1,6 @@
 package com.lawfirm.vo;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -117,6 +118,7 @@ public class CaseListVO {
     /**
      * 下次开庭时间
      */
+    @JsonProperty("nextHearing")
     private LocalDate nextHearingDate;
 
     /**
@@ -148,4 +150,14 @@ public class CaseListVO {
      * 是否可以删除
      */
     private Boolean canDelete;
+
+    /**
+     * 利冲审查状态
+     */
+    private String conflictCheckStatus;
+
+    /**
+     * 阶段卷宗目录是否已初始化
+     */
+    private Boolean stageFoldersInitialized;
 }

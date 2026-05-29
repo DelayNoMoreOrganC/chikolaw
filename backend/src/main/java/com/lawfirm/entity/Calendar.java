@@ -63,4 +63,10 @@ public class Calendar extends LogicalDeleteEntity {
     @NotNull(message = "创建人不能为空")
     @Column(name = "created_by", nullable = false)
     private Long createdBy;
+
+    /**
+     * 案件同步来源：CASE_HEARING / CASE_DEADLINE（与案件 hearingDate/deadlineDate 双向同步）
+     */
+    @Column(name = "sync_source", length = 32)
+    private String syncSource;
 }

@@ -2,14 +2,13 @@ package com.lawfirm.service;
 
 import com.lawfirm.dto.*;
 import com.lawfirm.entity.*;
+import com.lawfirm.enums.ApprovalStatus;
 import com.lawfirm.enums.CaseStatus;
 import com.lawfirm.exception.DuplicateResourceException;
 import com.lawfirm.exception.InvalidParameterException;
 import com.lawfirm.exception.ResourceNotFoundException;
 import com.lawfirm.repository.*;
 import com.lawfirm.util.PageResult;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import com.lawfirm.vo.CaseDetailVO;
 import com.lawfirm.vo.CaseListVO;
 import lombok.RequiredArgsConstructor;
@@ -52,6 +51,9 @@ public class CaseService {
     private final TodoService todoService;
     private final ClientService clientService;
     private final ClientRepository clientRepository;
+    private final CaseDocumentService caseDocumentService;
+    private final ApprovalRepository approvalRepository;
+    private final CaseCalendarSyncService caseCalendarSyncService;
 
     /**
      * 创建案件
@@ -143,8 +145,10 @@ public class CaseService {
         caseEntity.setRiskFee(request.getRiskFee());
         caseEntity.setFeeRemark(request.getFeeRemark());
 
-        // 设置初始状态（卷宗立案草稿使用 PENDING_FILING）
-        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+        // 设置初始状态（卷宗立案草稿 / 显式草稿使用 PENDING_FILING）
+        if (Boolean.TRUE.equals(request.getSaveAsDraft())) {
+            caseEntity.setStatus(CaseStatus.PENDING_FILING.getCode());
+        } else if (request.getStatus() != null && !request.getStatus().isBlank()) {
             caseEntity.setStatus(request.getStatus().trim());
         } else {
             caseEntity.setStatus(CaseStatus.CONSULTATION.getCode());
@@ -173,15 +177,19 @@ public class CaseService {
         // 4. 创建案件阶段流程
         caseStageService.initializeStages(caseEntity.getId(), request.getCaseType());
 
-        // 5. 自动生成待办事项（根据流程模板）
-        generateTodosFromTemplate(caseEntity, request);
+        boolean draftMode = CaseStatus.PENDING_FILING.getCode().equals(caseEntity.getStatus());
 
-        // 5.1 如果有审限时间，自动生成审限届满待办
+        // 5. 自动生成待办事项（草稿建案跳过，确认建案后再生成）
+        if (!draftMode) {
+            generateTodosFromTemplate(caseEntity, request);
+        }
+
+        // 5.1 如果有审限时间，自动生成审限届满待办（草稿跳过）
         log.info("[DEBUG] Checking deadline: caseId={}, deadlineDate={}, isNull={}",
                 caseEntity.getId(), caseEntity.getDeadlineDate(), caseEntity.getDeadlineDate() == null);
-        if (caseEntity.getDeadlineDate() != null) {
+        if (!draftMode && caseEntity.getDeadlineDate() != null) {
             createDeadlineTodo(caseEntity);
-        } else {
+        } else if (caseEntity.getDeadlineDate() == null) {
             log.info("[DEBUG] deadlineDate is null, skipping deadline todo creation");
         }
 
@@ -207,7 +215,58 @@ public class CaseService {
             log.info("创建应收款记录：{}条", request.getReceivables().size());
         }
 
+        caseCalendarSyncService.syncFromCase(caseEntity, currentUserId);
+
         return getCaseDetail(caseEntity.getId());
+    }
+
+    /**
+     * 确认正式建案：利冲通过后，草稿/待立案 → 审理中，并初始化阶段卷宗目录。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public CaseDetailVO confirmEstablishment(Long caseId, Long currentUserId) {
+        Case caseEntity = caseRepository.findById(caseId)
+                .orElseThrow(() -> new ResourceNotFoundException("案件", caseId));
+
+        String status = caseEntity.getStatus();
+        if (!CaseStatus.PENDING_FILING.getCode().equals(status)
+                && !CaseStatus.CONSULTATION.getCode().equals(status)) {
+            throw new InvalidParameterException("status", "仅草稿或待立案案件可确认建案");
+        }
+
+        assertFilingApprovalGate(caseEntity);
+
+        String conflict = caseEntity.getConflictCheckStatus();
+        boolean conflictOk = "PASSED".equals(conflict)
+                || (caseEntity.getConflictWaiverApprovalId() != null
+                && !"CONFLICT".equals(conflict) && !"PENDING".equals(conflict));
+        if (!conflictOk) {
+            throw new InvalidParameterException("conflictCheckStatus",
+                    "请先完成利益冲突审查或获得豁免批准");
+        }
+
+        caseEntity.setStatus(CaseStatus.ACTIVE.getCode());
+        if (caseEntity.getCurrentStage() == null || caseEntity.getCurrentStage().isBlank()) {
+            caseEntity.setCurrentStage(caseFlowDefinitionService.getFirstStageName(caseEntity.getCaseType()));
+        }
+        caseRepository.save(caseEntity);
+
+        caseDocumentService.initStageFolders(caseId, caseEntity.getCaseType(), caseEntity.getCurrentStage());
+
+        CaseCreateRequest todoCtx = new CaseCreateRequest();
+        todoCtx.setOwnerId(caseEntity.getOwnerId());
+        generateTodosFromTemplate(caseEntity, todoCtx);
+        if (caseEntity.getDeadlineDate() != null) {
+            createDeadlineTodo(caseEntity);
+        }
+
+        caseTimelineService.createSystemTimeline(
+                caseId, "CASE_ESTABLISHED", "案件已正式建立，卷宗阶段目录已初始化");
+
+        caseCalendarSyncService.syncFromCase(caseEntity, currentUserId);
+
+        log.info("案件确认建案: id={}, operator={}", caseId, currentUserId);
+        return getCaseDetail(caseId);
     }
 
     /**
@@ -243,6 +302,9 @@ public class CaseService {
         }
         if (request.getDeadlineDate() != null) {
             caseEntity.setDeadlineDate(request.getDeadlineDate());
+        }
+        if (request.getHearingDate() != null) {
+            caseEntity.setHearingDate(request.getHearingDate());
         }
         if (request.getCommissionDate() != null) {
             caseEntity.setCommissionDate(request.getCommissionDate());
@@ -316,6 +378,8 @@ public class CaseService {
         }
 
         caseRepository.save(caseEntity);
+
+        caseCalendarSyncService.syncFromCase(caseEntity, caseEntity.getOwnerId());
 
         // 检测状态变更，自动生成待办事项
         if (request.getStatus() != null && !request.getStatus().equals(originalStatus)) {
@@ -422,6 +486,33 @@ public class CaseService {
                 predicates.add(cb.equal(root.get("clientId"), request.getClientId()));
             }
 
+            if (request.getQuickFilter() != null && !request.getQuickFilter().isBlank()) {
+                switch (request.getQuickFilter()) {
+                    case "pending_approval":
+                        predicates.add(cb.equal(root.get("status"), CaseStatus.PENDING_FILING.getCode()));
+                        predicates.add(root.get("conflictCheckStatus").in("WAIVER_PENDING", "CONFLICT"));
+                        break;
+                    case "pending_intake":
+                        predicates.add(cb.equal(root.get("status"), CaseStatus.PENDING_FILING.getCode()));
+                        predicates.add(cb.or(
+                                cb.isNull(root.get("stageFoldersInitialized")),
+                                cb.equal(root.get("stageFoldersInitialized"), false)
+                        ));
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            if (request.getStartDate() != null && !request.getStartDate().isBlank()) {
+                predicates.add(cb.greaterThanOrEqualTo(
+                        root.get("filingDate"), LocalDate.parse(request.getStartDate())));
+            }
+            if (request.getEndDate() != null && !request.getEndDate().isBlank()) {
+                predicates.add(cb.lessThanOrEqualTo(
+                        root.get("filingDate"), LocalDate.parse(request.getEndDate())));
+            }
+
             return cb.and(predicates.toArray(new javax.persistence.criteria.Predicate[0]));
         };
 
@@ -488,7 +579,73 @@ public class CaseService {
         // 设置阶段进度
         vo.setStageProgress(caseStageService.getStageProgress(caseId));
 
+        enrichFilingApprovalMeta(vo, caseEntity);
+
         return vo;
+    }
+
+    private void enrichFilingApprovalMeta(CaseDetailVO vo, Case caseEntity) {
+        vo.setFilingApprovalId(caseEntity.getFilingApprovalId());
+
+        boolean hasPending = approvalRepository
+                .findFirstByCaseIdAndApprovalTypeAndStatusOrderByApplyTimeDesc(
+                        caseEntity.getId(),
+                        ApprovalService.TYPE_CASE_FILING,
+                        ApprovalStatus.PENDING.getCode())
+                .isPresent();
+        vo.setHasPendingFilingApproval(hasPending);
+
+        String filingStatus = null;
+        if (caseEntity.getFilingApprovalId() != null) {
+            filingStatus = approvalRepository.findById(caseEntity.getFilingApprovalId())
+                    .map(Approval::getStatus)
+                    .orElse(null);
+            vo.setFilingApprovalStatus(filingStatus);
+        }
+
+        vo.setCanConfirmEstablishment(computeCanConfirmEstablishment(caseEntity, hasPending, filingStatus));
+    }
+
+    private boolean computeCanConfirmEstablishment(Case caseEntity, boolean hasPendingFiling, String filingStatus) {
+        String status = caseEntity.getStatus();
+        if (!CaseStatus.PENDING_FILING.getCode().equals(status)
+                && !CaseStatus.CONSULTATION.getCode().equals(status)) {
+            return false;
+        }
+        if (hasPendingFiling) {
+            return false;
+        }
+        String conflict = caseEntity.getConflictCheckStatus();
+        boolean conflictOk = "PASSED".equals(conflict)
+                || (caseEntity.getConflictWaiverApprovalId() != null
+                && !"CONFLICT".equals(conflict) && !"PENDING".equals(conflict));
+        if (!conflictOk) {
+            return false;
+        }
+        if (caseEntity.getFilingApprovalId() != null) {
+            return ApprovalStatus.APPROVED.getCode().equals(filingStatus);
+        }
+        return true;
+    }
+
+    private void assertFilingApprovalGate(Case caseEntity) {
+        if (approvalRepository
+                .findFirstByCaseIdAndApprovalTypeAndStatusOrderByApplyTimeDesc(
+                        caseEntity.getId(),
+                        ApprovalService.TYPE_CASE_FILING,
+                        ApprovalStatus.PENDING.getCode())
+                .isPresent()) {
+            throw new InvalidParameterException("filingApproval",
+                    "存在待审批的立案申请，请等待审批通过后再确认建案");
+        }
+        if (caseEntity.getFilingApprovalId() != null) {
+            Approval filing = approvalRepository.findById(caseEntity.getFilingApprovalId())
+                    .orElseThrow(() -> new InvalidParameterException("filingApproval", "关联的立案审批不存在"));
+            if (!ApprovalStatus.APPROVED.getCode().equals(filing.getStatus())) {
+                throw new InvalidParameterException("filingApproval",
+                        "立案审批尚未通过，无法确认建案");
+            }
+        }
     }
 
     /**
@@ -681,6 +838,7 @@ public class CaseService {
                 .findFirst()
                 .orElse("");
         vo.setParties(plaintiff + " vs " + defendant);
+        vo.setNextHearingDate(caseEntity.getHearingDate());
 
         return vo;
     }

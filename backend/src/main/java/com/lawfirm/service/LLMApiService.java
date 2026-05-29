@@ -2,6 +2,7 @@ package com.lawfirm.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lawfirm.config.LawfirmAiProperties;
 import com.lawfirm.config.LLMProperties;
 import com.lawfirm.dto.AIConfigDTO;
 import com.lawfirm.dto.LlmRecentCallSnapshot;
@@ -34,6 +35,7 @@ public class LLMApiService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final LLMProperties llmProperties;
+    private final LawfirmAiProperties lawfirmAiProperties;
 
     private static final int MAX_RECENT_LLM_CALLS = 50;
     private final ArrayDeque<LlmRecentCallSnapshot> recentLlmCalls = new ArrayDeque<>();
@@ -169,6 +171,74 @@ public class LLMApiService {
                     .success(false)
                     .errorHint(trimErr(ex.getMessage()))
                     .modelHint(llmProperties.getDeepseek().getVisionModel())
+                    .build());
+            throw ex;
+        }
+    }
+
+    /**
+     * 智谱 GLM 视觉（Coding Plan，OpenAI 兼容多模态）
+     */
+    public String visionWithZhipu(String prompt, String imageBase64) {
+        return visionWithZhipu(prompt, imageBase64, "image/jpeg");
+    }
+
+    public String visionWithZhipu(String prompt, String imageBase64, String imageMime) {
+        long t0 = System.currentTimeMillis();
+        String apiKey = getZhipuApiKey();
+        String visionModel = llmProperties.getZhipu().getVisionModel();
+        if (apiKey == null || apiKey.isEmpty()) {
+            pushRecentLlm(LlmRecentCallSnapshot.builder()
+                    .epochMs(System.currentTimeMillis())
+                    .operation("vision")
+                    .primaryProvider("zhipu")
+                    .fallbackUsed(false)
+                    .durationMs(System.currentTimeMillis() - t0)
+                    .success(false)
+                    .errorHint("智谱 API 密钥未配置（ZHIPU_API_KEY）")
+                    .modelHint(visionModel)
+                    .build());
+            throw new AIServiceException("智谱 API 密钥未配置，请设置环境变量 ZHIPU_API_KEY");
+        }
+
+        String url = zhipuChatCompletionsUrl(null);
+        String fallbackUrl = zhipuChatCompletionsFallbackUrl(url);
+        Map<String, Object> requestBody = buildVisionRequest(
+                prompt, imageBase64, visionModel,
+                llmProperties.getZhipu().getTemperature(),
+                llmProperties.getZhipu().getMaxTokens(),
+                imageMime);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(apiKey);
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+        try {
+            String text = callApiWithRetryUrls(url, fallbackUrl, entity, "Zhipu Vision");
+            long ms = System.currentTimeMillis() - t0;
+            pushRecentLlm(LlmRecentCallSnapshot.builder()
+                    .epochMs(System.currentTimeMillis())
+                    .operation("vision")
+                    .primaryProvider("zhipu")
+                    .fallbackUsed(false)
+                    .durationMs(ms)
+                    .success(true)
+                    .errorHint(null)
+                    .modelHint(visionModel)
+                    .build());
+            return text;
+        } catch (AIServiceException ex) {
+            long ms = System.currentTimeMillis() - t0;
+            pushRecentLlm(LlmRecentCallSnapshot.builder()
+                    .epochMs(System.currentTimeMillis())
+                    .operation("vision")
+                    .primaryProvider("zhipu")
+                    .fallbackUsed(false)
+                    .durationMs(ms)
+                    .success(false)
+                    .errorHint(trimErr(ex.getMessage()))
+                    .modelHint(visionModel)
                     .build());
             throw ex;
         }
@@ -314,6 +384,10 @@ public class LLMApiService {
 
     private String chatByProvider(String provider, String prompt, String systemPrompt, AIConfig config) {
         switch (provider.toLowerCase()) {
+            case "zhipu":
+            case "glm":
+            case "zai":
+                return chatWithZhipuByConfig(prompt, systemPrompt, config);
             case "deepseek":
                 return chatWithDeepSeekByConfig(prompt, systemPrompt, config);
             case "qwen":
@@ -330,35 +404,52 @@ public class LLMApiService {
     }
 
     private boolean shouldFallback(String provider) {
+        if (lawfirmAiProperties.isCloudGlm()) {
+            return false;
+        }
         if (!llmProperties.getFallback().isEnabled()) {
             return false;
         }
-        // 云端已失败时不再递归降级
-        return provider != null && !"deepseek".equalsIgnoreCase(provider);
+        if (provider == null) {
+            return true;
+        }
+        String p = provider.toLowerCase();
+        return !"zhipu".equals(p) && !"glm".equals(p) && !"zai".equals(p) && !"deepseek".equals(p);
     }
 
     private String chatWithFallbackProvider(String prompt, String systemPrompt) {
         String fallbackProvider = llmProperties.getFallback().getProvider();
         if (fallbackProvider == null || fallbackProvider.isEmpty()) {
-            fallbackProvider = "deepseek";
+            fallbackProvider = "zhipu";
         }
-        if (!"deepseek".equalsIgnoreCase(fallbackProvider)) {
-            throw new AIServiceException("当前仅支持降级到 deepseek，实际配置: " + fallbackProvider);
+        String fp = fallbackProvider.toLowerCase();
+        if ("zhipu".equals(fp) || "glm".equals(fp) || "zai".equals(fp)) {
+            AIConfig zhipuConfig = findEnabledProviderConfig("zhipu");
+            if (zhipuConfig != null) {
+                return chatWithZhipuByConfig(prompt, systemPrompt, zhipuConfig);
+            }
+            AIConfig temp = new AIConfig();
+            temp.setProviderType("zhipu");
+            temp.setApiUrl(llmProperties.getZhipu().getBaseUrl());
+            temp.setModelName(llmProperties.getZhipu().getChatModel());
+            temp.setTemperature(llmProperties.getZhipu().getTemperature());
+            temp.setMaxTokens(llmProperties.getZhipu().getMaxTokens());
+            return chatWithZhipuByConfig(prompt, systemPrompt, temp);
         }
-
-        AIConfig deepseekConfig = findEnabledProviderConfig("deepseek");
-        if (deepseekConfig != null) {
-            return chatWithDeepSeekByConfig(prompt, systemPrompt, deepseekConfig);
+        if ("deepseek".equals(fp)) {
+            AIConfig deepseekConfig = findEnabledProviderConfig("deepseek");
+            if (deepseekConfig != null) {
+                return chatWithDeepSeekByConfig(prompt, systemPrompt, deepseekConfig);
+            }
+            AIConfig temp = new AIConfig();
+            temp.setProviderType("deepseek");
+            temp.setApiUrl(llmProperties.getDeepseek().getBaseUrl());
+            temp.setModelName(llmProperties.getDeepseek().getChatModel());
+            temp.setTemperature(llmProperties.getDeepseek().getTemperature());
+            temp.setMaxTokens(llmProperties.getDeepseek().getMaxTokens());
+            return chatWithDeepSeekByConfig(prompt, systemPrompt, temp);
         }
-
-        // 无数据库配置时，使用 yml/env 默认 DeepSeek 配置
-        AIConfig temp = new AIConfig();
-        temp.setProviderType("deepseek");
-        temp.setApiUrl(llmProperties.getDeepseek().getBaseUrl());
-        temp.setModelName(llmProperties.getDeepseek().getChatModel());
-        temp.setTemperature(llmProperties.getDeepseek().getTemperature());
-        temp.setMaxTokens(llmProperties.getDeepseek().getMaxTokens());
-        return chatWithDeepSeekByConfig(prompt, systemPrompt, temp);
+        throw new AIServiceException("不支持的降级 provider: " + fallbackProvider);
     }
 
     private AIConfig findEnabledProviderConfig(String providerType) {
@@ -411,6 +502,67 @@ public class LLMApiService {
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
         return callApiWithRetry(url, entity, "DeepSeek");
+    }
+
+    /**
+     * 智谱 GLM Coding Plan（OpenAI 兼容 /chat/completions）
+     */
+    private String chatWithZhipuByConfig(String prompt, String systemPrompt, AIConfig config) {
+        String apiKey = config.getApiKey();
+        if (apiKey == null || apiKey.isEmpty()) {
+            apiKey = getZhipuApiKey();
+        }
+        if (apiKey == null || apiKey.isEmpty()) {
+            throw new AIServiceException("智谱 API 密钥未配置");
+        }
+
+        String model = config.getModelName();
+        if (model == null || model.isEmpty()) {
+            model = llmProperties.getZhipu().getChatModel();
+        }
+
+        double temperature = config.getTemperature() != null
+                ? config.getTemperature() : llmProperties.getZhipu().getTemperature();
+        int maxTokens = config.getMaxTokens() != null
+                ? config.getMaxTokens() : llmProperties.getZhipu().getMaxTokens();
+
+        Map<String, Object> requestBody = buildChatRequest(prompt, systemPrompt, model, temperature, maxTokens);
+        String url = zhipuChatCompletionsUrl(config.getApiUrl());
+        String fallbackUrl = zhipuChatCompletionsFallbackUrl(url);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(apiKey);
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+        return callApiWithRetryUrls(url, fallbackUrl, entity, "Zhipu");
+    }
+
+    private String zhipuChatCompletionsUrl(String apiUrlOverride) {
+        String baseUrl = apiUrlOverride;
+        if (baseUrl == null || baseUrl.isEmpty()) {
+            baseUrl = llmProperties.getZhipu().getBaseUrl();
+        }
+        if (baseUrl == null || baseUrl.isEmpty()) {
+            baseUrl = "https://open.bigmodel.cn/api/coding/paas/v4";
+        }
+        return baseUrl.replaceAll("/+$", "") + "/chat/completions";
+    }
+
+    /**
+     * 智谱部分节点会出现 EOF，提供 coding/paas 与 paas 端点互备。
+     */
+    private String zhipuChatCompletionsFallbackUrl(String primaryUrl) {
+        if (primaryUrl == null || primaryUrl.isBlank()) {
+            return null;
+        }
+        if (primaryUrl.contains("/api/coding/paas/v4/")) {
+            return primaryUrl.replace("/api/coding/paas/v4/", "/api/paas/v4/");
+        }
+        if (primaryUrl.contains("/api/paas/v4/")) {
+            return primaryUrl.replace("/api/paas/v4/", "/api/coding/paas/v4/");
+        }
+        return null;
     }
 
     /**
@@ -601,6 +753,23 @@ public class LLMApiService {
         throw new AIServiceException(providerName + " API调用失败: " + lastException.getMessage(), lastException);
     }
 
+    private String callApiWithRetryUrls(String primaryUrl, String fallbackUrl, HttpEntity<?> entity, String providerName) {
+        try {
+            return callApiWithRetry(primaryUrl, entity, providerName);
+        } catch (AIServiceException primaryEx) {
+            if (fallbackUrl == null || fallbackUrl.isBlank() || fallbackUrl.equals(primaryUrl)) {
+                throw primaryEx;
+            }
+            log.warn("{} 主端点失败，切换备用端点重试。primary={}, fallback={}, err={}",
+                    providerName, primaryUrl, fallbackUrl, primaryEx.getMessage());
+            try {
+                return callApiWithRetry(fallbackUrl, entity, providerName + " (fallback)");
+            } catch (AIServiceException fallbackEx) {
+                throw new AIServiceException(providerName + " 主备端点均失败: " + fallbackEx.getMessage(), fallbackEx);
+            }
+        }
+    }
+
     /**
      * 带重试机制的Ollama API调用
      */
@@ -732,16 +901,23 @@ public class LLMApiService {
      * 构建视觉请求体（包含图片）
      */
     private Map<String, Object> buildVisionRequest(String prompt, String imageBase64, String model) {
+        return buildVisionRequest(prompt, imageBase64, model,
+                llmProperties.getDeepseek().getTemperature(),
+                llmProperties.getDeepseek().getMaxTokens(),
+                "image/jpeg");
+    }
+
+    private Map<String, Object> buildVisionRequest(String prompt, String imageBase64, String model,
+                                                   double temperature, int maxTokens, String imageMime) {
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", model);
-        requestBody.put("temperature", llmProperties.getDeepseek().getTemperature());
-        requestBody.put("max_tokens", llmProperties.getDeepseek().getMaxTokens());
+        requestBody.put("temperature", temperature);
+        requestBody.put("max_tokens", maxTokens);
 
-        // 构建包含图片的消息
+        String mime = imageMime != null && !imageMime.isBlank() ? imageMime : "image/jpeg";
         Map<String, Object> userMessage = new HashMap<>();
         userMessage.put("role", "user");
 
-        // 构建内容数组（文本+图片）
         Map<String, Object>[] content = new Map[]{
                 new HashMap<String, Object>() {{
                     put("type", "text");
@@ -750,7 +926,7 @@ public class LLMApiService {
                 new HashMap<String, Object>() {{
                     put("type", "image_url");
                     put("image_url", new HashMap<String, String>() {{
-                        put("url", "data:image/jpeg;base64," + imageBase64);
+                        put("url", "data:" + mime + ";base64," + imageBase64);
                     }});
                 }}
         };
@@ -809,6 +985,39 @@ public class LLMApiService {
      * 获取DeepSeek API密钥
      * 优先使用环境变量，否则使用配置文件中的值
      */
+    private String getZhipuApiKey() {
+        String envKey = System.getenv("ZHIPU_API_KEY");
+        if (envKey != null && !envKey.isEmpty()) {
+            return envKey;
+        }
+        envKey = System.getenv("GLM_CODING_API_KEY");
+        if (envKey != null && !envKey.isEmpty()) {
+            return envKey;
+        }
+        String configKey = llmProperties.getZhipu().getApiKey();
+        if (configKey != null && !configKey.isEmpty()) {
+            return configKey;
+        }
+        try {
+            AIConfig config = aiConfigService.getDefaultConfig();
+            if (config != null && config.getApiKey() != null && !config.getApiKey().isEmpty()
+                    && isZhipuProvider(config.getProviderType())) {
+                return config.getApiKey();
+            }
+        } catch (Exception e) {
+            log.debug("从数据库读取智谱配置失败: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private static boolean isZhipuProvider(String providerType) {
+        if (providerType == null) {
+            return false;
+        }
+        String p = providerType.toLowerCase();
+        return "zhipu".equals(p) || "glm".equals(p) || "zai".equals(p);
+    }
+
     private String getDeepSeekApiKey() {
         // 优先从环境变量读取
         String envKey = System.getenv("DEEPSEEK_API_KEY");

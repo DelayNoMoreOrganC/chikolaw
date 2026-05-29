@@ -67,8 +67,10 @@ public class CaseFileIntakeService {
                     pending.setPendingId(pendingId);
                     pending.setMessage(pending.getMessage()
                             + "\n（文件已暂存，编号 " + pendingId + "，可选择案件挂接或发起立案审批）");
-                } catch (java.io.IOException e) {
-                    log.warn("卷宗暂存失败: {}", e.getMessage());
+                } catch (Exception e) {
+                    log.warn("卷宗暂存失败（仍可手动选案件后重传归档）: {}", e.getMessage());
+                    pending.setMessage(pending.getMessage()
+                            + "\n（文件暂存失败：" + e.getMessage() + "，请先在上方选择案件后再次上传，或联系管理员修复数据库表）");
                 }
                 return pending;
             }
@@ -76,7 +78,7 @@ public class CaseFileIntakeService {
             Case caseEntity = caseRepository.findById(resolvedCaseId)
                     .orElseThrow(() -> new IllegalArgumentException("案件不存在"));
 
-            String folderPath = resolveFolderPath(recognition);
+            String folderPath = resolveFolderPath(caseEntity, recognition);
             String documentType = resolveDocumentType(recognition);
 
             CaseDocumentDTO savedDoc = caseDocumentService.uploadDocument(
@@ -141,7 +143,7 @@ public class CaseFileIntakeService {
         Case caseEntity = caseRepository.findById(caseId)
                 .orElseThrow(() -> new IllegalArgumentException("案件不存在"));
 
-        String folderPath = resolveFolderPath(recognition);
+        String folderPath = resolveFolderPath(caseEntity, recognition);
         String documentType = resolveDocumentType(recognition);
 
         CaseDocumentDTO savedDoc;
@@ -261,7 +263,12 @@ public class CaseFileIntakeService {
         return dto;
     }
 
-    private String resolveFolderPath(AIDocumentRecognitionResult recognition) {
+    private String resolveFolderPath(Case caseEntity, AIDocumentRecognitionResult recognition) {
+        String typeFolder = resolveDocumentTypeFolder(recognition);
+        return caseDocumentService.resolveStageDocumentFolder(caseEntity, typeFolder);
+    }
+
+    private String resolveDocumentTypeFolder(AIDocumentRecognitionResult recognition) {
         String type = recognition != null ? recognition.getDocumentType() : null;
         if (type == null || type.isBlank()) {
             return "其他";

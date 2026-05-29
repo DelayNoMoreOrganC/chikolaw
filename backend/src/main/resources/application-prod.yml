@@ -1,4 +1,16 @@
 # 生产环境：MySQL + Redis + HTTPS（由反向代理终止 TLS）
+lawfirm:
+  performance:
+    tomcat:
+      max-threads: 200
+      min-spare-threads: 25
+      accept-count: 150
+      max-connections: 10000
+
+server:
+  compression:
+    enabled: true
+
 spring:
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -8,9 +20,12 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+    show-sql: false
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQL8Dialect
+        jdbc:
+          batch_size: 50
   redis:
     host: ${REDIS_HOST:localhost}
     port: ${REDIS_PORT:6379}
@@ -50,7 +65,12 @@ hermes:
     enabled: ${HERMES_ENABLED:false}
     base-url: ${HERMES_BASE_URL:http://127.0.0.1:17888}
 
+# v2.2 生产同样默认 GLM；v3.0 本地模型时设 LAWFIRM_AI_MODE=hybrid 并配置 LMSTUDIO_*
+lawfirm:
+  ai:
+    mode: ${LAWFIRM_AI_MODE:cloud-glm}
+
 llm:
   fallback:
-    enabled: ${LLM_FALLBACK_ENABLED:true}
-    provider: ${LLM_FALLBACK_PROVIDER:deepseek}
+    enabled: ${LLM_FALLBACK_ENABLED:false}
+    provider: ${LLM_FALLBACK_PROVIDER:zhipu}

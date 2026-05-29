@@ -32,4 +32,7 @@ public interface ApprovalRepository extends JpaRepository<Approval, Long>, JpaSp
      * 根据案件ID查找审批列表
      */
     List<Approval> findByCaseIdOrderByApplyTimeDesc(Long caseId);
+
+    java.util.Optional<Approval> findFirstByCaseIdAndApprovalTypeAndStatusOrderByApplyTimeDesc(
+            Long caseId, String approvalType, String status);
 }

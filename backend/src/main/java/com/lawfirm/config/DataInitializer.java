@@ -135,26 +135,31 @@ public class DataInitializer implements CommandLineRunner {
     }
 
     private void createDefaultAIConfig() {
-        log.info("创建默认AI配置...");
+        log.info("创建默认 AI 配置（智谱 GLM Coding Plan）...");
+
+        String apiKey = System.getenv("ZHIPU_API_KEY");
+        if (apiKey == null || apiKey.isEmpty()) {
+            apiKey = System.getenv("GLM_CODING_API_KEY");
+        }
 
         AIConfig config = new AIConfig();
-        config.setConfigName("Ollama本地配置");
-        config.setProviderType("ollama");
-        config.setApiKey(""); // Ollama不需要API key
-        config.setApiUrl("http://localhost:11434");
-        config.setModelName("qwen3:8b");
-        config.setTemperature(0.1);
-        config.setMaxTokens(2000);
-        config.setTimeoutSeconds(60);
+        config.setConfigName("智谱 GLM Coding Plan");
+        config.setProviderType("zhipu");
+        config.setApiKey(apiKey != null ? apiKey : "");
+        config.setApiUrl("https://open.bigmodel.cn/api/coding/paas/v4");
+        config.setModelName("glm-4.7");
+        config.setTemperature(0.3);
+        config.setMaxTokens(8192);
+        config.setTimeoutSeconds(180);
         config.setIsDefault(true);
         config.setIsEnabled(true);
-        config.setCategory("DOCUMENT");
-        config.setDescription("默认Ollama配置，用于本地AI文档识别。确保Ollama服务在localhost:11434运行并已拉取qwen3:8b模型。");
+        config.setCategory("GENERAL");
+        config.setDescription("GLM Coding Plan 线上模型。请在 backend/.env 配置 ZHIPU_API_KEY。");
         config.setDeleted(false);
 
         aiConfigRepository.save(config);
 
-        log.info("默认AI配置创建成功！使用Ollama本地模型进行文档识别。");
+        log.info("默认 AI 配置已创建（provider=zhipu）。");
     }
 
     private void createTestTodos(Long userId) {

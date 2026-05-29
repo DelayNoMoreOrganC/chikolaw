@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 日程Repository
@@ -24,6 +25,8 @@ public interface CalendarRepository extends JpaRepository<Calendar, Long> {
      * 根据案件ID查找日程
      */
     List<Calendar> findByCaseIdOrderByStartTimeAsc(Long caseId);
+
+    Optional<Calendar> findFirstByCaseIdAndSyncSourceAndDeletedFalse(Long caseId, String syncSource);
 
     /**
      * 根据时间范围查找日程

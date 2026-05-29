@@ -1,3 +1,5 @@
+import { toApiDateTime, formatDisplayDateTime } from '@/utils/datetime'
+
 const REMINDER_MINUTES = {
   '15m': 15,
   '30m': 30,
@@ -12,26 +14,23 @@ const REMINDER_BY_MINUTES = Object.fromEntries(
 )
 
 export function formatCalendarDateTime(value) {
-  if (!value) return ''
-  return String(value).replace('T', ' ').slice(0, 16)
+  return formatDisplayDateTime(value)
 }
 
 /** 表单 → 后端 CalendarDTO */
 export function toCalendarPayload(form) {
   const minutes = REMINDER_MINUTES[form.reminder]
-  const padTime = (t) => {
-    if (!t) return t
-    if (t.length === 16) return `${t}:00`
-    return t
-  }
+  const caseId = form.caseId != null && form.caseId !== ''
+    ? Number(form.caseId)
+    : null
   return {
     title: form.title,
     calendarType: (form.type || 'other').toUpperCase(),
-    startTime: padTime(form.startTime),
-    endTime: padTime(form.endTime),
+    startTime: toApiDateTime(form.startTime),
+    endTime: toApiDateTime(form.endTime),
     location: form.location || null,
-    caseId: form.caseId || null,
-    participantIds: form.participants || [],
+    caseId: Number.isFinite(caseId) ? caseId : null,
+    participantIds: (form.participants || []).map(String),
     reminder: minutes != null,
     reminderMinutes: minutes ?? 0,
     repeatRule: form.repeat || null
@@ -62,6 +61,7 @@ export function normalizeCalendarEvent(dto) {
     ...dto,
     type: (dto.calendarType || '').toLowerCase(),
     repeat: dto.repeatRule || '',
-    startTime: formatCalendarDateTime(dto.startTime) || dto.startTime
+    startTime: formatCalendarDateTime(dto.startTime) || dto.startTime,
+    endTime: formatCalendarDateTime(dto.endTime) || dto.endTime
   }
 }

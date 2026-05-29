@@ -1,5 +1,6 @@
 package com.lawfirm;
 
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -12,6 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 并发测试
  * 模拟50人同时使用系统
  */
+@Disabled("需独立运行中的服务；压测请用 scripts/load-test-k6.js")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT)
 public class ConcurrencyTest {
 

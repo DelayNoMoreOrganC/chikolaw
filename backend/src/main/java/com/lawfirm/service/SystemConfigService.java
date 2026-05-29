@@ -208,9 +208,9 @@ public class SystemConfigService {
         saveConfig("case.auto_generate_name", "true", "BOOLEAN", CATEGORY_CASE, "自动生成案件名称");
 
         // AI配置
-        saveConfig("ai.provider", "deepseek", "STRING", CATEGORY_AI, "AI服务提供商");
-        saveConfig("ai.api_key", "", "STRING", CATEGORY_AI, "AI API密钥");
-        saveConfig("ai.model", "deepseek-chat", "STRING", CATEGORY_AI, "AI模型");
+        saveConfig("ai.provider", "zhipu", "STRING", CATEGORY_AI, "AI服务提供商（v2.2 默认智谱 GLM）");
+        saveConfig("ai.api_key", "", "STRING", CATEGORY_AI, "AI API密钥（见 ZHIPU_API_KEY）");
+        saveConfig("ai.model", "glm-4.7", "STRING", CATEGORY_AI, "AI模型");
 
         // 通知配置
         saveConfig("notification.email_enabled", "false", "BOOLEAN", CATEGORY_NOTIFICATION, "启用邮件通知");

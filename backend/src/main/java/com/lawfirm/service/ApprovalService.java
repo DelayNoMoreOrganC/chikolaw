@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lawfirm.dto.*;
 import com.lawfirm.entity.*;
 import com.lawfirm.enums.ApprovalStatus;
+import com.lawfirm.enums.CaseStatus;
 import com.lawfirm.repository.*;
 import com.lawfirm.util.PageResult;
 import lombok.extern.slf4j.Slf4j;
@@ -114,6 +115,15 @@ public class ApprovalService {
         // 记录流程
         recordFlow(approval.getId(), currentUserId, "SUBMIT", "提交审批");
 
+        if (TYPE_CASE_FILING.equals(approval.getApprovalType()) && approval.getCaseId() != null) {
+            linkFilingApprovalToCase(approval.getCaseId(), approval.getId());
+        }
+
+        if (ApprovalStatus.APPROVED.getCode().equals(approval.getStatus())
+                && TYPE_CASE_FILING.equals(approval.getApprovalType())) {
+            handleCaseFilingApproved(approval);
+        }
+
         if (ApprovalStatus.PENDING.getCode().equals(approval.getStatus())
                 && approval.getCurrentApproverId() != null
                 && !approval.getCurrentApproverId().equals(currentUserId)) {
@@ -149,28 +159,12 @@ public class ApprovalService {
         // 记录流程
         recordFlow(approvalId, approverId, "APPROVE", comments);
 
-        boolean filingDraftNotified = false;
+        boolean filingNotified = false;
         if (TYPE_CASE_FILING.equals(approval.getApprovalType())) {
-            Long pendingId = parseIntakePendingId(approval.getAttachments());
-            if (pendingId != null) {
-                markIntakeFilingApproved(pendingId, approvalId);
-                try {
-                    CaseIntakeDraftResultDTO draft = caseIntakePendingService.createDraftCaseAfterFilingApproved(
-                            pendingId, approval.getApplicantId());
-                    if (draft.getDraftCaseId() != null && approval.getApplicantId() != null) {
-                        notificationService.sendCaseFilingDraftReadyNotification(
-                                approval.getApplicantId(), approvalId, approval.getTitle(),
-                                draft.getDraftCaseId(), draft.isIntakeAttached());
-                        filingDraftNotified = true;
-                    }
-                } catch (Exception e) {
-                    log.warn("立案审批通过后创建草稿案件失败: pendingId={}, approvalId={}, err={}",
-                            pendingId, approvalId, e.getMessage());
-                }
-            }
+            filingNotified = handleCaseFilingApproved(approval);
         }
 
-        if (approval.getApplicantId() != null && !approval.getApplicantId().equals(approverId) && !filingDraftNotified) {
+        if (approval.getApplicantId() != null && !approval.getApplicantId().equals(approverId) && !filingNotified) {
             notificationService.sendApprovalResultNotification(
                     approval.getApplicantId(), approvalId, approval.getTitle(), true);
         }
@@ -467,6 +461,59 @@ public class ApprovalService {
         item.put("code", code);
         item.put("name", name);
         return item;
+    }
+
+    private boolean handleCaseFilingApproved(Approval approval) {
+        Long approvalId = approval.getId();
+        Long pendingId = parseIntakePendingId(approval.getAttachments());
+        Long targetCaseId = approval.getCaseId();
+
+        if (pendingId != null) {
+            markIntakeFilingApproved(pendingId, approvalId);
+            try {
+                CaseIntakeDraftResultDTO draft = caseIntakePendingService.createDraftCaseAfterFilingApproved(
+                        pendingId, approval.getApplicantId());
+                if (draft.getDraftCaseId() != null) {
+                    targetCaseId = draft.getDraftCaseId();
+                    linkFilingApprovalToCase(targetCaseId, approvalId);
+                    if (approval.getApplicantId() != null) {
+                        notificationService.sendCaseFilingDraftReadyNotification(
+                                approval.getApplicantId(), approvalId, approval.getTitle(),
+                                draft.getDraftCaseId(), draft.isIntakeAttached());
+                        return true;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("立案审批通过后创建草稿案件失败: pendingId={}, approvalId={}, err={}",
+                        pendingId, approvalId, e.getMessage());
+            }
+        }
+
+        if (targetCaseId != null) {
+            linkFilingApprovalToCase(targetCaseId, approvalId);
+            if (approval.getApplicantId() != null) {
+                notificationService.sendCaseFilingDraftReadyNotification(
+                        approval.getApplicantId(), approvalId, approval.getTitle(),
+                        targetCaseId, pendingId != null);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void linkFilingApprovalToCase(Long caseId, Long approvalId) {
+        if (caseId == null || approvalId == null) {
+            return;
+        }
+        caseRepository.findById(caseId).ifPresent(c -> {
+            if (CaseStatus.ACTIVE.getCode().equals(c.getStatus())
+                    || CaseStatus.CLOSED.getCode().equals(c.getStatus())
+                    || CaseStatus.ARCHIVED.getCode().equals(c.getStatus())) {
+                return;
+            }
+            c.setFilingApprovalId(approvalId);
+            caseRepository.save(c);
+        });
     }
 
     private void markIntakeFilingApproved(Long pendingId, Long approvalId) {

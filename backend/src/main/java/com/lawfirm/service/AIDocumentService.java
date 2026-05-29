@@ -33,11 +33,12 @@ public class AIDocumentService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final DocumentBusinessLogicHandler businessLogicHandler;
     private final LLMApiService llmApiService;
+    private final DocumentTextExtractService textExtractService;
 
     @Value("${ai.ocr.enabled:true}")
     private boolean ocrEnabled;
 
-    @Value("${ai.ocr.provider:tesseract}")
+    @Value("${ai.ocr.provider:zhipu}")
     private String ocrProvider;
 
     @Value("${ai.ocr.pdf-vision-max-pages:5}")
@@ -68,20 +69,24 @@ public class AIDocumentService {
             try {
                 aiConfig = aimodelRoutingService.resolveForUseCase(AIModelUseCase.DOCUMENT_RECOGNITION_EXTRACT);
             } catch (Exception e) {
-                log.warn("文档识别抽取场景无可用 AI 配置，使用默认 Ollama 占位: {}", e.getMessage());
-                aiConfig = createDefaultOllamaConfig();
+                log.warn("文档识别抽取场景无可用 AI 配置，使用智谱 GLM 默认: {}", e.getMessage());
+                aiConfig = createDefaultZhipuConfig();
             }
             modelName = aiConfig.getModelName() != null ? aiConfig.getModelName() : aiConfig.getProviderType();
 
-            String ocrText = performOCR(file);
-            log.info("OCR识别完成，文本长度: {}", ocrText.length());
+            String ocrText = extractTextForRecognition(file);
+            log.info("文书文本提取完成，长度: {}", ocrText.length());
 
             AIDocumentRecognitionResult result = extractLegalInfo(ocrText, aiConfig);
             result.setOcrText(ocrText);
 
             if (executeBusinessLogic
                     && result.getDocumentType() != null && !result.getDocumentType().isEmpty()) {
-                executeBusinessLogic(result, userId);
+                java.util.Map<String, Object> bl = executeBusinessLogic(result, userId);
+                result.setBusinessLogicExecuted(true);
+                result.setBusinessLogic(bl);
+            } else {
+                result.setBusinessLogicExecuted(false);
             }
 
             result.setProcessingTime(System.currentTimeMillis() - startTime);
@@ -110,6 +115,21 @@ public class AIDocumentService {
     }
 
     /**
+     * Word/TXT 等先本地抽文本；扫描件再走视觉 OCR（与卷宗录入一致）。
+     */
+    private String extractTextForRecognition(MultipartFile file) throws Exception {
+        String filename = file.getOriginalFilename();
+        if (textExtractService.isTextExtractable(filename)) {
+            String text = textExtractService.extractText(file);
+            if (text != null && text.trim().length() > 20) {
+                log.info("使用本地文本抽取，跳过视觉 OCR: {}", filename);
+                return text.trim();
+            }
+        }
+        return performOCR(file);
+    }
+
+    /**
      * 执行OCR识别
      */
     private String performOCR(MultipartFile file) throws Exception {
@@ -120,6 +140,10 @@ public class AIDocumentService {
         switch (ocrProvider.toLowerCase()) {
             case "tesseract":
                 return performTesseractOCR(file);
+            case "zhipu":
+            case "glm":
+            case "zai":
+                return performZhipuVisionOCR(file);
             case "deepseek":
                 return performDeepSeekVisionOCR(file);
             case "baidu":
@@ -205,6 +229,80 @@ public class AIDocumentService {
         // TODO: 集成阿里云OCR API
         log.warn("阿里云OCR尚未实现");
         return "";
+    }
+
+    /**
+     * 智谱 GLM 视觉 OCR（Coding Plan，扫描版 PDF 分页 Vision）
+     */
+    private String performZhipuVisionOCR(MultipartFile file) throws Exception {
+        log.info("开始使用智谱 GLM Vision 进行 OCR，文件名: {}, 大小: {}",
+                file.getOriginalFilename(), file.getSize());
+
+        String contentType = file.getContentType();
+        boolean isPdf = "application/pdf".equals(contentType)
+                || (file.getOriginalFilename() != null
+                && file.getOriginalFilename().toLowerCase().endsWith(".pdf"));
+
+        if (!isPdf && (contentType == null || !contentType.startsWith("image/"))) {
+            throw new AIServiceException("不支持的文件类型，仅支持图片和PDF");
+        }
+
+        if (isPdf) {
+            String pdfText = extractTextFromPDF(file);
+            if (pdfText != null && pdfText.trim().length() > 100) {
+                log.info("PDF 文本层提取成功，文本长度: {}", pdfText.length());
+                return pdfText;
+            }
+            log.warn("PDF 文本层不足（长度 {}），分页渲染后调用智谱 Vision",
+                    pdfText == null ? 0 : pdfText.trim().length());
+            return visionOcrPdfPagesZhipu(file);
+        }
+
+        byte[] imageBytes = file.getBytes();
+        String base64Image = Base64.getEncoder().encodeToString(imageBytes);
+        String mime = contentType != null && !contentType.isBlank() ? contentType : "image/jpeg";
+        String ocrPrompt = buildLegalOcrPrompt();
+        return llmApiService.visionWithZhipu(ocrPrompt, base64Image, mime);
+    }
+
+    private String visionOcrPdfPagesZhipu(MultipartFile file) throws Exception {
+        String ocrPrompt = buildLegalOcrPrompt();
+        try (org.apache.pdfbox.pdmodel.PDDocument document =
+                     org.apache.pdfbox.pdmodel.PDDocument.load(file.getInputStream())) {
+            org.apache.pdfbox.rendering.PDFRenderer renderer =
+                    new org.apache.pdfbox.rendering.PDFRenderer(document);
+            int total = document.getNumberOfPages();
+            if (total <= 0) {
+                throw new AIServiceException("PDF 无页面可读");
+            }
+            int maxPages = Math.min(total, Math.max(1, pdfVisionMaxPages));
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < maxPages; i++) {
+                BufferedImage img = renderer.renderImageWithDPI(i, pdfVisionDpi);
+                img = limitImageWidth(img, 2048);
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ImageIO.write(img, "png", baos);
+                String b64 = Base64.getEncoder().encodeToString(baos.toByteArray());
+                log.info("智谱 Vision OCR PDF 第 {}/{} 页", i + 1, maxPages);
+                String part = llmApiService.visionWithZhipu(ocrPrompt, b64, "image/png");
+                sb.append("---第").append(i + 1).append("页---\n").append(part).append("\n\n");
+            }
+            if (total > maxPages) {
+                sb.append("\n（仅识别前 ").append(maxPages).append(" 页，共 ").append(total).append(" 页）\n");
+            }
+            return sb.toString().trim();
+        }
+    }
+
+    private static String buildLegalOcrPrompt() {
+        return "请仔细识别图片中的所有文字内容，包括中文、英文、数字、标点符号等。" +
+                "如果是法律文书，请特别注意：\n" +
+                "1. 案号的准确性\n" +
+                "2. 当事人姓名、公司名称\n" +
+                "3. 日期格式\n" +
+                "4. 金额数字\n" +
+                "5. 法律条文引用\n\n" +
+                "请按照原文的格式和排版输出识别结果，保持段落结构和换行。";
     }
 
     /**
@@ -407,7 +505,7 @@ public class AIDocumentService {
         try {
             aiConfig = aimodelRoutingService.resolveForUseCase(AIModelUseCase.DOCUMENT_RECOGNITION_EXTRACT);
         } catch (Exception e) {
-            aiConfig = createDefaultOllamaConfig();
+            aiConfig = createDefaultZhipuConfig();
         }
         AIDocumentRecognitionResult result = extractLegalInfo(text, aiConfig);
         result.setOcrText(text);
@@ -417,12 +515,15 @@ public class AIDocumentService {
     /**
      * 执行业务逻辑（根据文书类型路由）
      */
-    public void executeBusinessLogic(AIDocumentRecognitionResult result, Long userId) {
+    public java.util.Map<String, Object> executeBusinessLogic(AIDocumentRecognitionResult result, Long userId) {
         String docType = result.getDocumentType();
+        java.util.Map<String, Object> summary = new java.util.HashMap<>();
 
         if (docType == null || docType.isEmpty()) {
             log.warn("文书类型为空，跳过业务逻辑执行");
-            return;
+            summary.put("skipped", true);
+            summary.put("reason", "empty_document_type");
+            return summary;
         }
 
         log.info("开始执行业务逻辑: 文书类型={}", docType);
@@ -430,34 +531,32 @@ public class AIDocumentService {
         try {
             switch (docType) {
                 case "判决书":
-                    log.info("识别到判决书，执行判决书业务逻辑");
-                    businessLogicHandler.handleJudgment(result, userId);
+                    summary.putAll(businessLogicHandler.handleJudgment(result, userId));
                     break;
-
                 case "起诉状":
-                    log.info("识别到起诉状，执行起诉状业务逻辑");
-                    businessLogicHandler.handleComplaint(result, userId);
+                    summary.putAll(businessLogicHandler.handleComplaint(result, userId));
                     break;
-
                 case "答辩状":
-                    log.info("识别到答辩状，执行答辩状业务逻辑");
-                    businessLogicHandler.handleAnswer(result, userId);
+                    summary.putAll(businessLogicHandler.handleAnswer(result, userId));
                     break;
-
                 case "调解书":
-                    log.info("识别到调解书，执行调解书业务逻辑");
-                    businessLogicHandler.handleMediation(result, userId);
+                    summary.putAll(businessLogicHandler.handleMediation(result, userId));
                     break;
-
                 default:
+                    summary.put("skipped", true);
+                    summary.put("reason", "unsupported_type");
+                    summary.put("documentType", docType);
                     log.info("文书类型 {} 暂不支持自动业务逻辑执行", docType);
                     break;
             }
+            summary.put("documentType", docType);
+            summary.put("success", true);
         } catch (Exception e) {
             log.error("执行业务逻辑失败: 文书类型={}", docType, e);
-            // 不抛出异常，避免影响识别结果返回
-            // 前端可以根据 businessLogicExecuted 标志判断是否需要手动处理
+            summary.put("success", false);
+            summary.put("error", e.getMessage());
         }
+        return summary;
     }
 
     /**
@@ -560,15 +659,15 @@ public class AIDocumentService {
     }
 
     /**
-     * 创建默认的Ollama配置（当数据库中没有配置时使用）
+     * 创建默认智谱配置（当数据库中没有配置时使用）
      */
-    private AIConfig createDefaultOllamaConfig() {
+    private AIConfig createDefaultZhipuConfig() {
         AIConfig config = new AIConfig();
-        config.setProviderType("ollama");
-        config.setApiUrl("http://localhost:11434");
-        config.setModelName("qwen3:8b");
-        config.setMaxTokens(2000);
-        config.setTemperature(0.1);
+        config.setProviderType("zhipu");
+        config.setApiUrl("https://open.bigmodel.cn/api/coding/paas/v4");
+        config.setModelName("glm-4.7");
+        config.setMaxTokens(8192);
+        config.setTemperature(0.3);
         return config;
     }
 }
